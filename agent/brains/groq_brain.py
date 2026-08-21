@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 class GroqBrain(BaseBrain):
     PREFERRED_MODELS = [
         "llama-3.3-70b-versatile",
+        "deepseek-r1-distill-llama-70b",
+        "qwen/qwen3.6-27b",
         "llama-3.1-70b-versatile",
         "mixtral-8x7b-32768",
         "gemma2-9b-it",
-        "llama-3.1-8b-instant"
     ]
 
     def __init__(self, api_key: str, model: str = "auto", rpm_limit: int = 30):
@@ -75,7 +76,7 @@ class GroqBrain(BaseBrain):
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 8192
+            "max_tokens": 2048
         }
 
         last_error = None
