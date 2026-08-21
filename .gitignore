@@ -1,0 +1,29 @@
+# --- Secrets & Environment ---
+.env
+.env.*
+!.env.example
+
+# --- Python & Cache Artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Dynamic Data & Local Databases ---
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/active_task.json
+data/ingest_cache/
+data/models/
+data/calibration.json
+data/.state_manifest.json
+data/sandbox_manifest.json
+
+# --- OS & IDE Configs ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

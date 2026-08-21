@@ -1,0 +1,20 @@
+[
+  {"text": "git status shows the state of the working directory and staging area.", "topic": "git"},
+  {"text": "git add <file> stages changes in <file> for the next commit.", "topic": "git"},
+  {"text": "git commit -m \"message\" records staged changes with a message.", "topic": "git"},
+  {"text": "git push uploads local commits to a remote repository.", "topic": "git"},
+  {"text": "git pull fetches from a remote and merges into the current branch.", "topic": "git"},
+  {"text": "git branch <name> creates a new branch without switching to it.", "topic": "git"},
+  {"text": "git checkout -b <name> creates a new branch and switches to it immediately.", "topic": "git"},
+  {"text": "git switch <name> is the modern replacement for checkout when changing branches.", "topic": "git"},
+  {"text": "git log shows the commit history for the current branch.", "topic": "git"},
+  {"text": "git diff shows unstaged changes between the working directory and the last commit.", "topic": "git"},
+  {"text": "git stash temporarily shelves uncommitted changes so you can switch context.", "topic": "git"},
+  {"text": "git merge combines the history of another branch into the current branch.", "topic": "git"},
+  {"text": "git rebase replays commits from the current branch onto another base commit.", "topic": "git"},
+  {"text": "A pull request on GitHub proposes merging changes from one branch or fork into another, with room for review before it merges.", "topic": "github"},
+  {"text": "A GitHub Release packages a tagged version of the repository, usually with release notes and downloadable build artifacts.", "topic": "github"},
+  {"text": "GitHub Issues track bugs, tasks, and feature requests for a repository.", "topic": "github"},
+  {"text": "A fork on GitHub is a personal copy of someone else's repository, for making changes without affecting the original.", "topic": "github"},
+  {"text": "GitHub Actions runs automated workflows such as tests, builds, and deploys in response to repository events like a push.", "topic": "github"}
+]
