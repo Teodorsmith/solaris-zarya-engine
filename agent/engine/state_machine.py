@@ -102,3 +102,87 @@ class TaskFSM:
         if not state or not state.goal_id or not state.action_hash:
             return None
         return f"{state.goal_id}_{state.step_index}_{state.action_hash}"
+
+    def run_to_completion(self, task_id: str, goals_db, brain, procedural=None, validator=None) -> str:
+        # 1. Clean up orphaned pending goals from past aborted/interrupted runs
+        if hasattr(goals_db, "abort_orphaned_goals"):
+            goals_db.abort_orphaned_goals(task_id)
+
+        # 2. Retrieve only goals scoped to this task_id
+        task_goals = goals_db.get_all_goals(task_id)
+        if not task_goals:
+            # Fallback if no goals explicitly tagged with this task_id
+            task_goals = goals_db.get_all_goals()
+
+        goal_map = {g.id: g for g in task_goals}
+        total_goals = len(task_goals)
+        step_outputs: dict[str, str] = {}
+        
+        while True:
+            ready_goal = None
+            completed_count = sum(1 for g in task_goals if g.status == "COMPLETED")
+            
+            if completed_count == total_goals and total_goals > 0:
+                self.advance("COMPLETED")
+                summary_lines = [f"- **{g.description}**: {step_outputs.get(g.id, 'Done')[:120]}" for g in task_goals]
+                return f"Final Result: Task '{task_id}' completed successfully ({total_goals}/{total_goals} steps).\n" + "\n".join(summary_lines)
+                
+            for g in task_goals:
+                if g.status == "PENDING":
+                    deps_met = all(goal_map[d].status == "COMPLETED" for d in g.dependencies if d in goal_map)
+                    if deps_met:
+                        ready_goal = g
+                        break
+                        
+            if not ready_goal:
+                if any(g.status == "PENDING" for g in task_goals):
+                    self.advance("FAILED")
+                    raise RuntimeError("Goal deadlock: pending goals remain but dependencies unmet.")
+                break
+                
+            step_num = completed_count + 1
+            print(f"[Step {step_num}/{total_goals}] Executing: {ready_goal.description}...", end=" ", flush=True)
+            self.advance("RUNNING", action_hash=ready_goal.id)
+            
+            try:
+                # Gather prior step context
+                ctx_parts = []
+                for d in ready_goal.dependencies:
+                    if d in step_outputs:
+                        ctx_parts.append(f"Output of prior step ({goal_map[d].description}):\n{step_outputs[d]}")
+                ctx = "\n\n".join(ctx_parts) if ctx_parts else "No prior step dependencies."
+                
+                if ready_goal.required_tier == 0:
+                    prompt = (
+                        f"You are executing a sub-goal in an autonomous task.\n"
+                        f"Goal: {ready_goal.description}\n"
+                        f"Completion Criteria: {ready_goal.completion_criteria}\n"
+                        f"Context from completed steps:\n{ctx}\n\n"
+                        f"Provide a concise, direct result satisfying the criteria."
+                    )
+                    result = brain.generate(prompt)
+                else:
+                    # Tool dispatch
+                    prompt = (
+                        f"Tool Execution for Goal: {ready_goal.description}\n"
+                        f"Criteria: {ready_goal.completion_criteria}\n"
+                        f"Context:\n{ctx}"
+                    )
+                    result = brain.generate(prompt)
+                    
+                step_outputs[ready_goal.id] = result.strip()
+                ready_goal.status = "COMPLETED"
+                goals_db.update_status(ready_goal.id, "COMPLETED")
+                self.commit_action(ready_goal.id)
+                print("-> Done.")
+                
+            except Exception as e:
+                ready_goal.status = "FAILED"
+                goals_db.update_status(ready_goal.id, "FAILED")
+                self.record_failure()
+                self.advance("FAILED")
+                print(f"-> Failed: {e}")
+                return f"Task failed at step: {ready_goal.description} (Error: {e})"
+                
+        self.advance("COMPLETED")
+        return "Final Result: Task completed successfully."

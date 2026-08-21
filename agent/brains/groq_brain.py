@@ -72,11 +72,38 @@ class GroqBrain(BaseBrain):
                 time.sleep(min_interval - elapsed)
             self._last_request_time = time.time()
 
+    @staticmethod
+    def _extract_final_answer(raw: str) -> str:
+        """Strip <think>...</think> chain-of-thought blocks if present."""
+        if "</think>" in raw:
+            raw = raw.split("</think>", 1)[1]
+        return raw.strip()
+
+    def _get_fallback_brain(self) -> Optional[BaseBrain]:
+        import os
+        gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if gemini_key:
+            from agent.brains.gemini_brain import GeminiBrain
+            model = os.getenv("GEMINI_MODEL", "auto")
+            rpm = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
+            return GeminiBrain(api_key=gemini_key, model=model, rpm_limit=rpm)
+            
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            from agent.brains.openai_brain import OpenAIBrain
+            model = os.getenv("OPENAI_MODEL", "auto")
+            rpm = int(os.getenv("OPENAI_RPM_LIMIT", "500"))
+            base_url = os.getenv("OPENAI_BASE_URL")
+            return OpenAIBrain(api_key=openai_key, model=model, rpm_limit=rpm, base_url=base_url)
+            
+        return None
+
     def generate(self, prompt: str) -> str:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 2048
+            "temperature": 0.2,
+            "max_tokens": 4096
         }
 
         last_error = None
@@ -97,7 +124,7 @@ class GroqBrain(BaseBrain):
                         if "content" not in message:
                             raise BrainError(f"Malformed response structure: {data}")
                         
-                        return message["content"]
+                        return self._extract_final_answer(message["content"])
 
                     if response.status_code in self.retryable_statuses:
                         last_error = f"HTTP {response.status_code}: {response.text}"
@@ -108,6 +135,21 @@ class GroqBrain(BaseBrain):
                         else:
                             sleep_duration = (2.0 ** attempt) + random.uniform(0.5, 1.5)
                         
+                        # Provider Failover on long rate limit pause
+                        if response.status_code == 429 and sleep_duration > 30.0:
+                            fallback = self._get_fallback_brain()
+                            if fallback:
+                                logger.warning(
+                                    f"Groq rate limit delay ({sleep_duration:.1f}s > 30s). "
+                                    f"Failing over to {fallback.__class__.__name__}..."
+                                )
+                                return fallback.generate(prompt)
+                            else:
+                                raise BrainError(
+                                    f"Groq 429 rate limit reached ({sleep_duration:.1f}s wait required). "
+                                    "No fallback provider (GEMINI_API_KEY/OPENAI_API_KEY) found."
+                                )
+
                         logger.warning(f"Groq API returned {response.status_code}. Retrying in {sleep_duration:.2f}s...")
                         time.sleep(sleep_duration)
                         continue
@@ -120,6 +162,12 @@ class GroqBrain(BaseBrain):
                 sleep_duration = (2.0 ** attempt) + random.uniform(0.5, 1.5)
                 logger.warning(f"Network error ({exc.__class__.__name__}). Retrying in {sleep_duration:.2f}s...")
                 time.sleep(sleep_duration)
+
+        # Retries exhausted -> attempt fallback before throwing error
+        fallback = self._get_fallback_brain()
+        if fallback:
+            logger.warning(f"Groq API retries exhausted. Failing over to {fallback.__class__.__name__}...")
+            return fallback.generate(prompt)
 
         raise BrainError(f"Groq API failed after {self.max_retries} retries. Last error: {last_error}")
 

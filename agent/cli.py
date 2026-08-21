@@ -202,9 +202,22 @@ def dispatch_command(
             
         # 4. Save and Start FSM
         planner.commit_plan(plan)
+        task_id = plan[0].task_id if plan else "root"
         console.print("Plan committed. Starting TaskFSM...")
-        # (FSM execution loop stub for now)
+        fsm.start_task(task_id)
         console.print("[green]Task initialized in goals.db[/green]")
+        
+        try:
+            result = fsm.run_to_completion(
+                task_id=task_id,
+                goals_db=goals,
+                brain=brain,
+                procedural=procedural,
+                validator=validator
+            )
+            console.print(f"[bold green]{result}[/bold green]")
+        except Exception as e:
+            console.print(f"[bold red]Task execution failed: {e}[/bold red]")
         
     else:
         console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")

@@ -17,6 +17,16 @@ from agent.memory.semantic import SemanticMemory
 from agent.models import EpisodicLog, Fact, ProjectFile
 
 
+def merge_project_results(path_matches, semantic_matches, k=5):
+    merged = {}
+    for p in path_matches:
+        merged[p.path] = p
+    for p in semantic_matches:
+        if p.path not in merged:
+            merged[p.path] = p
+    return list(merged.values())[:k]
+
+
 @dataclass
 class RetrievalResult:
     facts: list[Fact]
@@ -44,7 +54,29 @@ class Retriever:
         score = self.semantic.top_score(query)
         
         # 2. Retrieve Project Files
-        project_files = self.project.search(query, top_k=top_k)
+        semantic_files = self.project.search(query, top_k=5)
+        
+        # Exact path matches
+        path_matches = []
+        tokens = [t.strip('?.,;:"\'`') for t in query.split()]
+        path_tokens = [t for t in tokens if "/" in t or t.endswith(".py") or t.endswith(".md") or t.endswith(".txt")]
+        
+        if path_tokens:
+            rows = self.project.conn.execute("SELECT * FROM project_files").fetchall()
+            for row in rows:
+                p = row["path"]
+                for t in path_tokens:
+                    if p == t or p.endswith("/" + t) or p.endswith("\\" + t):
+                        path_matches.append(
+                            ProjectFile(
+                                id=row["id"], project_id=row["project_id"], path=row["path"], 
+                                sha256_hash=row["sha256_hash"], summary=row["summary"], 
+                                created_at=row["created_at"], updated_at=row["updated_at"]
+                            )
+                        )
+                        break
+
+        project_files = merge_project_results(path_matches, semantic_files, k=5)
         
         # We consider a result 'confident' or 'tentative' if EITHER the semantic score 
         # is high enough, OR we found relevant project files (since project files

@@ -319,10 +319,10 @@ Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double
 
 | Phase | Milestone Name | Primary Test Target | Status |
 | :--- | :--- | :--- | :--- |
-| **Phase 0** | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed (11/11 tests pass)** |
-| **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | 🟡 **Active Build Target** |
-| **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py` | ⚪ Queued |
-| **Phase 3** | **Supervised Planning & Chat** | `tests/test_goals.py`, `tests/test_state_machine.py` | ⚪ Queued |
-| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py` | ⚪ Queued |
+| Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed (11/11 tests pass)** |
+| **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | ✅ **Completed** |
+| **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py` | ✅ **Completed** |
+| **Phase 3** | **Supervised Planning & Chat** | `tests/test_goals.py`, `tests/test_state_machine.py` | ✅ **Completed** |
+| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py` | 🟡 **Active Build Target** |
 | **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | ⚪ Queued |
 | **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py` | ⚪ Queued |

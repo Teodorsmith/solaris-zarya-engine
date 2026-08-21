@@ -90,10 +90,11 @@ class ProjectDecision(BaseModel):
 
 class Goal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str
     parent_id: Optional[str] = None
     dependencies: list[str] = Field(default_factory=list)
-    status: Literal["PENDING", "ACTIVE", "COMPLETED", "FAILED"] = "PENDING"
+    status: Literal["PENDING", "ACTIVE", "COMPLETED", "FAILED", "ABORTED", "CANCELLED"] = "PENDING"
     completion_criteria: str
     required_tier: int = 0
     created_at: str = Field(default_factory=_now)
