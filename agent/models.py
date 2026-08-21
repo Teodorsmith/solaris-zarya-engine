@@ -86,3 +86,27 @@ class ProjectDecision(BaseModel):
     content: str
     related_files_json: str = "[]"
     created_at: str = Field(default_factory=_now)
+
+
+class Goal(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    description: str
+    parent_id: Optional[str] = None
+    dependencies: list[str] = Field(default_factory=list)
+    status: Literal["PENDING", "ACTIVE", "COMPLETED", "FAILED"] = "PENDING"
+    completion_criteria: str
+    required_tier: int = 0
+    created_at: str = Field(default_factory=_now)
+
+
+class TaskState(BaseModel):
+    version: str = "1.0"
+    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    updated_at: str = Field(default_factory=_now)
+    step_index: int = 0
+    state: Literal["PENDING", "RUNNING", "VERIFYING", "COMMITTED", "FAILED"] = "PENDING"
+    consecutive_failures: int = 0
+    goal_id: Optional[str] = None
+    action_hash: Optional[str] = None
+    pending_action_hash: Optional[str] = None
+    executed_actions: list[str] = Field(default_factory=list)

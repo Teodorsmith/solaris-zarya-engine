@@ -12,18 +12,27 @@ from agent.brains.gemini_brain import BrainError  # Reuse the same error type
 logger = logging.getLogger(__name__)
 
 class OpenAIBrain(BaseBrain):
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", rpm_limit: int = 500, base_url: Optional[str] = None):
+    PREFERRED_MODELS = [
+        "gpt-4o",
+        "gpt-4-turbo",
+        "gpt-4",
+        "gpt-4o-mini",
+        "gpt-3.5-turbo"
+    ]
+
+    def __init__(self, api_key: str, model: str = "auto", rpm_limit: int = 500, base_url: Optional[str] = None):
+        import os
         self.api_key = api_key
-        self.model = model
         self.rpm_limit = rpm_limit
         self._last_request_time = 0.0
         self._lock = threading.Lock()
         
         # Default to OpenAI's endpoint, but allow custom OpenRouter / OpenCode endpoints
-        if base_url:
-            self.url = base_url.rstrip("/") + "/chat/completions" if not base_url.endswith("/chat/completions") else base_url
-        else:
-            self.url = "https://api.openai.com/v1/chat/completions"
+        self.base_url = base_url.rstrip("/") if base_url else "https://api.openai.com/v1"
+        if self.base_url.endswith("/chat/completions"):
+            self.base_url = self.base_url[:-17] # remove /chat/completions
+            
+        self.url = f"{self.base_url}/chat/completions"
         
         self.headers = {
             "Content-Type": "application/json",
@@ -33,6 +42,28 @@ class OpenAIBrain(BaseBrain):
         self.timeout = httpx.Timeout(connect=10.0, read=60.0, write=20.0, pool=10.0)
         self.max_retries = 3
         self.retryable_statuses = {408, 429, 500, 502, 503, 504}
+        
+        configured_model = os.getenv("OPENAI_MODEL", model).strip()
+        if configured_model.lower() in {"auto", ""}:
+            self.model = self._discover_best_model()
+            logger.info(f"OpenAI auto-discovery selected model: {self.model}")
+        else:
+            self.model = configured_model
+
+    def _discover_best_model(self) -> str:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.get(f"{self.base_url}/models", headers=self.headers)
+                if res.status_code == 200:
+                    available = {m["id"] for m in res.json().get("data", [])}
+                    for candidate in self.PREFERRED_MODELS:
+                        if candidate in available:
+                            return candidate
+                    if available:
+                        return next(iter(available))
+        except Exception as e:
+            logger.warning(f"OpenAI auto-discovery failed: {e}")
+        return "gpt-4o-mini"
 
     def _apply_rate_limit(self) -> None:
         if self.rpm_limit <= 0:

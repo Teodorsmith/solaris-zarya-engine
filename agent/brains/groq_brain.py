@@ -12,13 +12,22 @@ from agent.brains.gemini_brain import BrainError  # Reuse the same error type
 logger = logging.getLogger(__name__)
 
 class GroqBrain(BaseBrain):
-    def __init__(self, api_key: str, model: str = "qwen/qwen3.6-27b", rpm_limit: int = 30):
+    PREFERRED_MODELS = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-70b-versatile",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "llama-3.1-8b-instant"
+    ]
+
+    def __init__(self, api_key: str, model: str = "auto", rpm_limit: int = 30):
+        import os
         self.api_key = api_key
-        self.model = model
         self.rpm_limit = rpm_limit
         self._last_request_time = 0.0
         self._lock = threading.Lock()
-        self.url = "https://api.groq.com/openai/v1/chat/completions"
+        self.base_url = "https://api.groq.com/openai/v1"
+        self.url = f"{self.base_url}/chat/completions"
         
         self.headers = {
             "Content-Type": "application/json",
@@ -28,6 +37,28 @@ class GroqBrain(BaseBrain):
         self.timeout = httpx.Timeout(connect=10.0, read=60.0, write=20.0, pool=10.0)
         self.max_retries = 3
         self.retryable_statuses = {408, 429, 500, 502, 503, 504}
+        
+        configured_model = os.getenv("GROQ_MODEL", model).strip()
+        if configured_model.lower() in {"auto", ""}:
+            self.model = self._discover_best_model()
+            logger.info(f"Groq auto-discovery selected model: {self.model}")
+        else:
+            self.model = configured_model
+
+    def _discover_best_model(self) -> str:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.get(f"{self.base_url}/models", headers=self.headers)
+                if res.status_code == 200:
+                    available = {m["id"] for m in res.json().get("data", [])}
+                    for candidate in self.PREFERRED_MODELS:
+                        if candidate in available:
+                            return candidate
+                    if available:
+                        return next(iter(available))
+        except Exception as e:
+            logger.warning(f"Groq auto-discovery failed: {e}")
+        return "llama-3.3-70b-versatile"
 
     def _apply_rate_limit(self) -> None:
         if self.rpm_limit <= 0:

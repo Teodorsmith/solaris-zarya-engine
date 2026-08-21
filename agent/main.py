@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 
 from agent.cli import run_repl
-from agent.config import EPISODIC_DB, PROCEDURAL_DB, SEMANTIC_DB, PROJECTS_DB, ensure_dirs, load_env
+from agent.config import EPISODIC_DB, PROCEDURAL_DB, SEMANTIC_DB, PROJECTS_DB, GOALS_DB, ensure_dirs, load_env
 from agent.brains.factory import get_brain
 from agent.engine.retriever import Retriever
 from agent.memory.embeddings import EmbeddingEngine
@@ -15,14 +15,17 @@ from agent.memory.seeder import seed_knowledge
 from agent.memory.semantic import SemanticMemory
 
 
-def build_stores() -> tuple[SemanticMemory, EpisodicMemory, ProceduralMemory, ProjectMemory, EmbeddingEngine]:
+from agent.memory.goals import GoalMemory
+
+def build_stores() -> tuple[SemanticMemory, EpisodicMemory, ProceduralMemory, ProjectMemory, GoalMemory, EmbeddingEngine]:
     ensure_dirs()
     embedder = EmbeddingEngine()
     semantic = SemanticMemory(SEMANTIC_DB, embedder)
     episodic = EpisodicMemory(EPISODIC_DB)
     procedural = ProceduralMemory(PROCEDURAL_DB)
     project = ProjectMemory(PROJECTS_DB, embedder)
-    return semantic, episodic, procedural, project, embedder
+    goals = GoalMemory(GOALS_DB)
+    return semantic, episodic, procedural, project, goals, embedder
 
 
 def main() -> None:
@@ -34,7 +37,7 @@ def main() -> None:
     # Phase 1: load environment variables and instantiate the brain
     load_env()
     
-    semantic, episodic, procedural, project, embedder = build_stores()
+    semantic, episodic, procedural, project, goals, embedder = build_stores()
     brain = get_brain(embedder)
 
     if args.reseed:
@@ -51,11 +54,11 @@ def main() -> None:
     if unknown:
         command = unknown[0]
         rest = " ".join(unknown[1:])
-        dispatch_command(command, rest, semantic, episodic, procedural, project, brain)
+        dispatch_command(command, rest, semantic, episodic, procedural, project, goals, brain)
     elif args.demo:
         _run_demo(semantic, episodic, project, brain)
     else:
-        run_repl(semantic, episodic, procedural, project, brain, embedder)
+        run_repl(semantic, episodic, procedural, project, goals, brain, embedder)
 
 
 def _run_demo(semantic: SemanticMemory, episodic: EpisodicMemory, project: ProjectMemory, brain) -> None:

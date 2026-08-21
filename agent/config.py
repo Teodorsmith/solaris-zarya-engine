@@ -10,6 +10,9 @@ SEMANTIC_DB = DATA_DIR / "semantic.db"
 EPISODIC_DB = DATA_DIR / "episodic.db"
 PROCEDURAL_DB = DATA_DIR / "procedural.db"
 PROJECTS_DB = DATA_DIR / "projects.db"
+GOALS_DB = DATA_DIR / "goals.db"
+ACTIVE_TASK_JSON = DATA_DIR / "active_task.json"
+STATE_MANIFEST_JSON = DATA_DIR / "state_manifest.json"
 
 SEED_VERSION = 1  # bump when seed_data/facts.json changes shape, to force a reseed
 

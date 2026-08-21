@@ -17,7 +17,7 @@ def _build_gemini_brain(embedder: EmbeddingEngine | None) -> BaseBrain:
         warnings.warn("No GEMINI_API_KEY or GOOGLE_API_KEY found. Falling back to MockBrain.")
         return _build_mock_brain(embedder)
         
-    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    model = os.getenv("GEMINI_MODEL", "auto")
     rpm_limit = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
     
     # Lazy import to avoid httpx requirement if not using Gemini
@@ -31,7 +31,7 @@ def _build_groq_brain(embedder) -> BaseBrain:
         warnings.warn("No GROQ_API_KEY found. Falling back to MockBrain.")
         return _build_mock_brain(embedder)
         
-    model = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
+    model = os.getenv("GROQ_MODEL", "auto")
     rpm_limit = int(os.getenv("GROQ_RPM_LIMIT", "30"))
     
     from agent.brains.groq_brain import GroqBrain
@@ -43,7 +43,7 @@ def _build_openai_brain(embedder) -> BaseBrain:
         warnings.warn("No OPENAI_API_KEY found. Falling back to MockBrain.")
         return _build_mock_brain(embedder)
         
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    model = os.getenv("OPENAI_MODEL", "auto")
     rpm_limit = int(os.getenv("OPENAI_RPM_LIMIT", "500"))
     base_url = os.getenv("OPENAI_BASE_URL")
     

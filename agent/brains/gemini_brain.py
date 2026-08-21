@@ -15,13 +15,18 @@ class BrainError(Exception):
     pass
 
 class GeminiBrain(BaseBrain):
-    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", rpm_limit: int = 15):
+    PREFERRED_MODELS = [
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-1.0-pro"
+    ]
+
+    def __init__(self, api_key: str, model: str = "auto", rpm_limit: int = 15):
+        import os
         self.api_key = api_key
-        self.model = model
         self.rpm_limit = rpm_limit
         self._last_request_time = 0.0
         self._lock = threading.Lock()
-        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         
         self.headers = {
             "Content-Type": "application/json",
@@ -37,6 +42,34 @@ class GeminiBrain(BaseBrain):
         )
         self.max_retries = 3
         self.retryable_statuses = {408, 429, 500, 502, 503, 504}
+        
+        configured_model = os.getenv("GEMINI_MODEL", model).strip()
+        if configured_model.lower() in {"auto", ""}:
+            self.model = self._discover_best_model()
+            logger.info(f"Gemini auto-discovery selected model: {self.model}")
+        else:
+            self.model = configured_model
+            
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+
+    def _discover_best_model(self) -> str:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                res = client.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models", 
+                    headers=self.headers
+                )
+                if res.status_code == 200:
+                    # Gemini returns models like "models/gemini-1.5-pro", strip prefix
+                    available = {m["name"].replace("models/", "") for m in res.json().get("models", [])}
+                    for candidate in self.PREFERRED_MODELS:
+                        if candidate in available:
+                            return candidate
+                    if available:
+                        return next(iter(available))
+        except Exception as e:
+            logger.warning(f"Gemini auto-discovery failed: {e}")
+        return "gemini-1.5-flash"
 
     def _apply_rate_limit(self) -> None:
         """Enforce strict client-side RPM pacing."""

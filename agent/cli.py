@@ -15,6 +15,7 @@ from agent.memory.procedural import ProceduralMemory
 from agent.memory.project import ProjectMemory
 from agent.memory.seeder import seed_knowledge
 from agent.memory.semantic import SemanticMemory
+from agent.memory.goals import GoalMemory
 
 console = Console()
 
@@ -37,12 +38,39 @@ def run_repl(
     episodic: EpisodicMemory, 
     procedural: ProceduralMemory,
     project: ProjectMemory,
+    goals: GoalMemory,
     brain: BaseBrain,
     embedder: EmbeddingEngine
 ) -> None:
+    from agent.engine.state_machine import TaskFSM
+    from agent.config import ACTIVE_TASK_JSON, STATE_MANIFEST_JSON
+    
     brain_name = brain.__class__.__name__
-    console.print(f"[bold cyan]Agent REPL — Phase 1 (Brain: {brain_name})[/bold cyan]")
+    console.print(f"[bold cyan]Agent REPL — Phase 3 (Brain: {brain_name})[/bold cyan]")
     console.print(HELP)
+
+    fsm = TaskFSM(ACTIVE_TASK_JSON, STATE_MANIFEST_JSON)
+    active_state = fsm.load_state()
+    manifest_data = fsm.manifest.read_manifest()
+    
+    if active_state:
+        console.print(f"[bold yellow]WARNING: Unfinished task detected (Goal: {active_state.goal_id}, State: {active_state.state})[/bold yellow]")
+        resp = console.input("Resume task? [Y/n]: ").strip().lower()
+        if resp in ('y', 'yes', ''):
+            console.print("Resuming...")
+            if active_state.pending_action_hash and active_state.pending_action_hash not in active_state.executed_actions:
+                console.print(f"[bold red]CRITICAL: Task crashed during action {active_state.pending_action_hash}.[/bold red]")
+                console.print("[yellow]The agent cannot guarantee if the last action finished executing. Transitioning to VERIFYING state.[/yellow]")
+                fsm.advance("VERIFYING")
+            # stub for resume loop
+        else:
+            fsm.clear_task()
+            console.print("Task cleared.")
+    elif manifest_data and manifest_data.get("active_task_hash"):
+        console.print("[bold red]CRITICAL: active_task.json is missing but state_manifest.json indicates a task was running![/bold red]")
+        console.print("[yellow]Please inspect episodic.db or backup states before proceeding to avoid state corruption.[/yellow]")
+        console.print("Clearing manifest to allow boot...")
+        fsm.clear_task()
 
     while True:
         try:
@@ -62,7 +90,10 @@ def run_repl(
             console.print("bye.")
             break
         
-        dispatch_command(command, rest, semantic, episodic, procedural, project, brain)
+        try:
+            dispatch_command(command, rest, semantic, episodic, procedural, project, goals, brain)
+        except Exception as e:
+            console.print(f"[bold red]System Error:[/bold red] {e}")
 
 
 def dispatch_command(
@@ -72,11 +103,20 @@ def dispatch_command(
     episodic: EpisodicMemory, 
     procedural: ProceduralMemory,
     project: ProjectMemory,
+    goals: GoalMemory,
     brain: BaseBrain,
 ) -> None:
+    from agent.engine.state_machine import TaskFSM
+    from agent.engine.task_planner import TaskPlanner
+    from agent.engine.governor import PermissionGovernor
+    from agent.config import ACTIVE_TASK_JSON, STATE_MANIFEST_JSON
+
     retriever = Retriever(semantic, episodic, project, brain)
     validator = SkillValidator()
     synthesizer = SkillSynthesizer(brain, retriever, procedural, validator)
+    fsm = TaskFSM(ACTIVE_TASK_JSON, STATE_MANIFEST_JSON)
+    planner = TaskPlanner(brain, goals)
+    governor = PermissionGovernor(episodic)
 
     if command == "help":
         console.print(HELP)
@@ -126,6 +166,46 @@ def dispatch_command(
         _handle_project_cmd(rest, project, brain)
     elif command == "stats":
         _print_stats(semantic, episodic, procedural, project)
+    elif command == "task":
+        if not rest:
+            console.print("[yellow]usage: task <description>[/yellow]")
+            return
+        
+        # 1. Plan
+        console.print(f"Planning task: '{rest}'...")
+        try:
+            plan = planner.plan_task(rest, is_autonomous=False)
+        except Exception as e:
+            console.print(f"[red]Failed to plan task: {e}[/red]")
+            return
+            
+        # 2. Show plan
+        table = Table(title="Proposed Task Plan (Goal DAG)")
+        table.add_column("ID")
+        table.add_column("Description")
+        table.add_column("Tier", justify="right")
+        table.add_column("Deps")
+        
+        # map for short display ids
+        short_ids = {g.id: f"g{i}" for i, g in enumerate(plan)}
+        
+        for g in plan:
+            short_deps = [short_ids.get(d, d[:4]) for d in g.dependencies]
+            table.add_row(short_ids[g.id], g.description, str(g.required_tier), ",".join(short_deps))
+        console.print(table)
+        
+        # 3. Approve
+        response = console.input("Approve plan and begin execution? [Y/n]: ").strip().lower()
+        if response not in ('y', 'yes', ''):
+            console.print("Task cancelled.")
+            return
+            
+        # 4. Save and Start FSM
+        planner.commit_plan(plan)
+        console.print("Plan committed. Starting TaskFSM...")
+        # (FSM execution loop stub for now)
+        console.print("[green]Task initialized in goals.db[/green]")
+        
     else:
         console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
 
