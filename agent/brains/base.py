@@ -25,6 +25,10 @@ class BaseBrain(ABC):
         if nothing parses — callers decide how to handle a brain that
         didn't return valid JSON."""
         stripped = text.strip()
+        
+        # Strip <think>...</think> blocks from models like DeepSeek/Qwen
+        stripped = re.sub(r"<think>.*?</think>", "", stripped, flags=re.DOTALL).strip()
+        
         if stripped.startswith("```"):
             stripped = re.sub(r"^```[a-zA-Z]*\n?", "", stripped)
             stripped = re.sub(r"\n?```$", "", stripped)

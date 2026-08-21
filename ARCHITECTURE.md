@@ -30,7 +30,7 @@ The **Autonomous Research & Skill Synthesis Engine** provides an AI Agent with t
 > *"A self-teaching AI agent that autonomously researches topics, writes and tests reusable tools, maintains a persistent self-model and goal graph, proactively self-improves during idle cycles, and strictly refuses to extrapolate when knowledge is missing."*
 
 > [!IMPORTANT]
-> **"Zero hallucinations" is not an achievable goal.** The closed-world prompt reduces hallucination dramatically, but an LLM can still ignore instructions, paraphrase retrieved facts incorrectly, infer a plausible missing detail, or retrieve a wrong fact that scores above threshold. The stated goal of this system is **hallucination-resistant** answers achieved through: (1) closed-world grounding (Mitigation #29), (2) confidence gating (Mitigation #37), (3) honest refusal paths, and (4) user-corrected top-authority facts (Mitigation #31). Hallucination is treated as a residual, measured risk — not a solved problem. Any benchmark or release note claiming otherwise is incorrect.
+> **"Zero hallucinations" is not an achievable goal.** (Note: Ensure "hallucination-resistant grounded retrieval" is the terminology used). The closed-world prompt reduces hallucination dramatically, but an LLM can still ignore instructions, paraphrase retrieved facts incorrectly, infer a plausible missing detail, or retrieve a wrong fact that scores above threshold. The stated goal of this system is **hallucination-resistant** answers achieved through: (1) closed-world grounding (Mitigation #29), (2) confidence gating (Mitigation #37), (3) honest refusal paths, and (4) user-corrected top-authority facts (Mitigation #31). Hallucination is treated as a residual, measured risk — not a solved problem. Any benchmark or release note claiming otherwise is incorrect.
 
 > [!NOTE]
 > **Broad general knowledge comes from the Brain, not the Memory.** This system does **not** replace the underlying LLM's pretrained knowledge. With Gemini/Claude/OpenAI as the brain, the agent already has broad general knowledge; the memory system *augments* it with persistent, private, sourced, and user-corrected facts, verified skills, and project state. With MockBrain or a small local model, the agent only knows what it has explicitly ingested — there is no latent broad knowledge. Feature comparisons ("knows about history like ChatGPT") depend entirely on which brain is configured, not on the memory tier.
@@ -69,8 +69,8 @@ The **Autonomous Research & Skill Synthesis Engine** provides an AI Agent with t
                       ▼                                                             ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ 3. TWO-STAGE CONFIDENCE GATE & GROUNDED RETRIEVAL                                                       │
-│ - Reciprocal Rank Fusion (RRF): Dense Cosine (BGE) + SQLite FTS5 BM25                                   │
-│ - Dynamic Thresholds from calibration/queries.json (Mitigation #37)                                     │
+│ - Candidate Ranking: Reciprocal Rank Fusion (RRF) on Dense Cosine (BGE) + SQLite FTS5 BM25              │
+│ - Gating Metric: L2-normalized Dense Cosine Similarity of Top-1 Candidate against Dynamic Thresholds    │
 │ - Stage 1A (<0.65): Honest refusal ──► "I haven't learned this yet. Study it?"                          │
 │ - Stage 1B (>=0.80): Closed-world grounded answer (Mitigation #29)                                      │
 │ - Stage 2 (0.65-0.80): Fast LLM Discriminator validation                                                │
@@ -802,7 +802,7 @@ Semantic memory stores two primary, complementary knowledge structures:
 
 #### Mitigation #30: Hybrid Search Formula Penalty on Paraphrased Queries
 - **Problem**: The additive formula `0.6 * dense + 0.4 * sparse` produces false penalties (e.g. `0.54`) when BM25 score is 0.0 (e.g. asking "How to ship local commits to remote?" for `git push`), which drops the score below the 0.65 threshold and triggers a false refusal. It also allows sparse matches to falsely elevate irrelevant dense scores.
-- **Fix**: Replace the linear weighted sum with Reciprocal Rank Fusion (RRF):
+- **Fix**: Decouple Candidate Ranking from Confidence Gating. Use RRF strictly as a Rank Aggregator to select the Top-K candidates. Use the Top-1 candidate's L2-normalized dense cosine similarity for the Gating Metric ($0.65$ / $0.80$):
   ```python
   def reciprocal_rank_fusion(dense_ranks: dict[str, int], sparse_ranks: dict[str, int], k: int = 60) -> list[tuple[str, float]]:
       rrf_scores = {}
@@ -864,7 +864,8 @@ Semantic memory stores two primary, complementary knowledge structures:
   | `static` | Compiled + tiered import checks pass (Mitigation #25, #13) | Safe to parse, all imports in allowlist, dependencies available |
   | `mock` | Mocked `unittest` suites pass (existing V1 path) | Internally consistent; **not** real-world proven |
   | `real_local` | Skill executes against a **real local** CLI/compiler/engine in a gVisor sealed sandbox (git, docker, python, dotnet, godot...) against deterministic fixtures | Proven correct-by-execution locally |
-  | `real_external` | Skill executes against an **external API** (GitHub, Docker Hub, email, Wikipedia...) through an allowlisted network domain + sandbox/test account, **or** against a deterministic local fixture server that emulates the API under schema validation | Proven against the external service (or a schema-faithful emulation) |
+  | `fixture_verified` | Executes against an offline schema-validating local HTTP fixture server | Proven against official schema |
+  | `real_external` | Executes against a live external network endpoint via an allowlisted proxy with test credentials (GitHub, Docker Hub, email, Wikipedia...) through an allowlisted network domain + sandbox/test account, **or** against a deterministic local fixture server that emulates the API under schema validation | Proven against the external service (or a schema-faithful emulation) |
   | `pure_deterministic` | *(Optional, for side-effect-free skills only)* Two runs with different PRNG seeds produce identical output hashes | Verified deterministic; no time-based side-channels or pointer leaks |
 
   1. **Official schema anchors (Mitigation #12, extended)**: During Step 2 ingestion, capture the official command surface (`gh --help`, `gh release --help`, `docker --help`) into the fact store. `validate_command_flags()` rejects any synthesized `--flag` not present in the official schema before tests even run.
@@ -1100,6 +1101,11 @@ Semantic memory stores two primary, complementary knowledge structures:
   2. **Write protection**: The agent is **forbidden from directly editing `projects.db`** (same rule as `tests/benchmark_suite/`). All writes go through `memory/project.py`. Direct modification is treated as a security violation and rolled back.
   3. **Cross-tier retrieval**: The retriever (Subsystem 5) searches `project_files` alongside `semantic_facts`, `context_passages`, and skills. A query like *"Where is player movement handled in my Unity project?"* retrieves the relevant file rows (path/keyword FTS5 + semantic summary embedding) and optionally related Unity-API facts, returning a grounded, code-aware answer.
   4. **Path scanning**: `project index <path>` (CLI) performs an initial full-tree scan (respecting `.gitignore`-style exclusions) and registers the project. Subsequent edits update incrementally.
+  5. **Indexing Hardening Guards**:
+     - **Symlink Traversal Guard**: Set `follow_symlinks=False` on all directory walks to prevent infinite recursion and directory escapes.
+     - **Secret / Credential Sanitizer**: Automatically ignore files matching sensitive patterns (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `credentials.json`, `*secret*`) and run a fast regex scan for standard key patterns before chunking.
+     - **File Size Ceiling**: Skip any individual text file > 2 MB to prevent memory exhaustion and context flooding.
+     - **Injection Scrubbing**: Strip prompt delimiters (`"""`, `system:`, `<|im_start|>`) before passing file chunks into summarization Brain prompts.
 - **Enforcement Location**: `agent/memory/project.py`, `agent/engine/retriever.py`, `agent/cli.py`.
 
 #### Mitigation #51: Real-Local vs Real-External Verification (Network-Aware "Real" Tier)
@@ -1116,7 +1122,9 @@ Semantic memory stores two primary, complementary knowledge structures:
 #### Mitigation #52: Self-Model & Project-Memory Write Protection (Anti-Tamper Integrity)
 - **Problem**: `tests/benchmark_suite/` is protected from the agent, but `self_model.json` is not. If the agent has file-write permission for its own workspace, it could edit `self_model.json` directly and inflate its competence scores — turning self-awareness into self-deception. The same risk applies to `projects.db` (it could rewrite project history or decisions).
 - **Fix**: Treat `self_model.json` and `projects.db` as **write-protected agent state**, exactly like the benchmark suite:
-  1. **Forbidden direct writes**: The agent (including generated skills, synthesizer code, and heartbeat/reflection actions) is strictly forbidden from writing these paths. All updates must go through the owning module: `agent/memory/self_model.py` and `agent/memory/project.py` respectively.
+  1. **Forbidden direct writes**: The agent (including generated skills, synthesizer code, and heartbeat/reflection actions) is strictly forbidden from writing these paths.
+     - **V1 Mechanism**: Enforce write protection at the API level (only `project.py` and `self_model.py` expose write handles) combined with a SHA-256 State Manifest (`data/.state_manifest.json`) checked at startup to detect unauthorized file mutations.
+     - **V2/V3 Mechanism**: Run the daemon and state stores in a separate OS daemon process communicating exclusively over IPC/UNIX sockets with strict POSIX file permissions (`chmod 600` owned by an isolated daemon user).
   2. **Allowed mutation sources only**: `self_model.py` accepts competence updates from (a) benchmark pass/fail (Mitigation #45), (b) subprocess exit codes, (c) user corrections, and (d) explicit user ratings (Mitigation #55). `project.py` accepts index/decision writes from file-hash diffs and user-provided `project decision` commands.
   3. **Tamper detection & rollback**: A startup watchdog hashes `self_model.json` and `projects.db` (and compares against `data/.state_manifest.json`). If a change was not produced by the owning module's audit log (every write is appended to `episodic.db` with `event_type = "self_model_update"` / `"project_memory_update"` + `trace_id`), the change is treated as a security violation: the file is restored from the last audited state and the event is logged for human review.
   4. Any direct modification by the agent is rolled back and surfaced to the user as a security alert.
@@ -1768,7 +1776,7 @@ The engine is constructed in a strict **Memory Core $\to$ Project Grounding $\to
 
 2. **Phase 1: Real Brain & Project Codebase Memory (Grounded Retrieval)**
    - **Scope**: Direct API brain integration (Gemini, Claude, OpenAI, Ollama), Tier 4 Project Codebase Memory (`projects.db`, Mitigation #50), SHA-256 hash diff incremental indexing, and cross-tier grounded retrieval.
-   - **Proof Milestone**: Index workspace (`project index <path>`) and ask: *"Where is player movement handled in my project?"* $\to$ Verifies the agent retrieves exact files and facts with zero hallucinations and outputs honest refusal on non-existent symbols.
+   - **Proof Milestone**: Index workspace (`project index <path>`) and ask: *"Where is player movement handled in my project?"* $\to$ Verifies the agent retrieves exact files and facts with hallucination-resistant grounded retrieval achieving >= 98% factual precision on the closed-world benchmark test suite with verified refusal on out-of-distribution queries.
 
 3. **Phase 2: Real Skill Execution & Safety (Subprocess & Revision Loop)**
    - **Scope**: AST tiered allowlist (Mitigation #25), isolated subprocess execution with 5s timeout, typed output validation (`SkillResultSchema`, Mitigation #49), real dry-run execution (`real_local`), and 2-retry synthesizer revision loop (Mitigation #35).

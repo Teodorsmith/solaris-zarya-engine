@@ -1,12 +1,18 @@
-"""REPL loop: ask, learn, facts, stats, exit."""
+"""REPL loop: ask, learn, facts, stats, project, exit."""
 from __future__ import annotations
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
+from agent.brains.base import BaseBrain
 from agent.engine.retriever import Retriever
+from agent.engine.validator import SkillValidator
+from agent.engine.synthesizer import SkillSynthesizer, SynthesizerError
+from agent.memory.embeddings import EmbeddingEngine
 from agent.memory.episodic import EpisodicMemory
 from agent.memory.procedural import ProceduralMemory
+from agent.memory.project import ProjectMemory
 from agent.memory.seeder import seed_knowledge
 from agent.memory.semantic import SemanticMemory
 
@@ -14,18 +20,28 @@ console = Console()
 
 HELP = """
 Commands:
-  ask <question>    Ask something. Answered honestly from what's actually been seeded.
-  learn              Phase 0 stub — seeds facts.json, nothing more (see note below).
-  facts               List everything currently in semantic memory.
-  stats               Show memory counts.
-  help                Show this message.
-  exit                Quit.
+  ask <question>      Ask something. Answered honestly from seeded facts & project files.
+  learn                Phase 0 stub — seeds facts.json.
+  skill <topic>        Synthesize and validate a new local Python skill.
+  facts                List everything currently in semantic memory.
+  project index <dir>  Index workspace directory into Project Memory.
+  project list         List indexed project files.
+  stats                Show memory counts.
+  help                 Show this message.
+  exit                 Quit.
 """
 
 
-def run_repl(semantic: SemanticMemory, episodic: EpisodicMemory, procedural: ProceduralMemory) -> None:
-    retriever = Retriever(semantic, episodic)
-    console.print("[bold cyan]Agent REPL — Phase 0[/bold cyan]")
+def run_repl(
+    semantic: SemanticMemory, 
+    episodic: EpisodicMemory, 
+    procedural: ProceduralMemory,
+    project: ProjectMemory,
+    brain: BaseBrain,
+    embedder: EmbeddingEngine
+) -> None:
+    brain_name = brain.__class__.__name__
+    console.print(f"[bold cyan]Agent REPL — Phase 1 (Brain: {brain_name})[/bold cyan]")
     console.print(HELP)
 
     while True:
@@ -37,6 +53,7 @@ def run_repl(semantic: SemanticMemory, episodic: EpisodicMemory, procedural: Pro
 
         if not raw:
             continue
+        
         command, _, rest = raw.partition(" ")
         command = command.lower()
         rest = rest.strip()
@@ -44,28 +61,109 @@ def run_repl(semantic: SemanticMemory, episodic: EpisodicMemory, procedural: Pro
         if command in ("exit", "quit"):
             console.print("bye.")
             break
-        elif command == "help":
-            console.print(HELP)
-        elif command == "ask":
-            if not rest:
-                console.print("[yellow]usage: ask <question>[/yellow]")
-                continue
-            console.print(retriever.answer(rest))
-        elif command == "learn":
-            # Deliberately not real ingestion in Phase 0 — real learning
-            # needs a real brain (Phase 1). This only (re-)seeds facts.json.
-            inserted = seed_knowledge(semantic, force=False)
-            if inserted:
-                console.print(f"Knowledge base seeded ({inserted} new facts).")
-            else:
-                console.print("Knowledge base already seeded.")
-            console.print("Real learning requires a real Brain (Phase 1).")
-        elif command == "facts":
-            _print_facts(semantic)
-        elif command == "stats":
-            _print_stats(semantic, episodic, procedural)
+        
+        dispatch_command(command, rest, semantic, episodic, procedural, project, brain)
+
+
+def dispatch_command(
+    command: str,
+    rest: str,
+    semantic: SemanticMemory, 
+    episodic: EpisodicMemory, 
+    procedural: ProceduralMemory,
+    project: ProjectMemory,
+    brain: BaseBrain,
+) -> None:
+    retriever = Retriever(semantic, episodic, project, brain)
+    validator = SkillValidator()
+    synthesizer = SkillSynthesizer(brain, retriever, procedural, validator)
+
+    if command == "help":
+        console.print(HELP)
+    elif command == "ask":
+        if not rest:
+            console.print("[yellow]usage: ask <question>[/yellow]")
+            return
+        console.print(retriever.answer(rest))
+    elif command == "learn":
+        inserted = seed_knowledge(semantic, force=False)
+        if inserted:
+            console.print(f"Knowledge base seeded ({inserted} new facts).")
         else:
-            console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
+            console.print("Knowledge base already seeded.")
+    elif command == "skill":
+        if not rest:
+            console.print("[yellow]usage: skill <topic>[/yellow]")
+            return
+        console.print(f"Synthesizing skill for topic: '{rest}'...")
+        try:
+            skill = synthesizer.learn_skill(rest)
+            console.print(f"[green]Successfully synthesized and validated skill '{skill.name}'[/green]")
+        except SynthesizerError as e:
+            console.print(f"[red]Failed to synthesize skill: {str(e)}[/red]")
+    elif command == "skills":
+        _print_skills(procedural)
+    elif command == "run-skill":
+        name, _, args_raw = rest.partition(" ")
+        name = name.strip()
+        args_raw = args_raw.strip()
+        if not name:
+            console.print("[yellow]usage: run-skill <name> [json_args][/yellow]")
+            return
+        skill = procedural.load(name)
+        if not skill:
+            console.print(f"[red]Skill '{name}' not found.[/red]")
+            return
+        try:
+            console.print(f"Running '{name}'...")
+            res = validator.run_saved_skill(skill, args_raw)
+            console.print(f"Result: {res.model_dump_json(indent=2)}")
+        except Exception as e:
+            console.print(f"[red]Execution failed: {e}[/red]")
+    elif command == "facts":
+        _print_facts(semantic)
+    elif command == "project":
+        _handle_project_cmd(rest, project, brain)
+    elif command == "stats":
+        _print_stats(semantic, episodic, procedural, project)
+    else:
+        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
+
+
+def _handle_project_cmd(rest: str, project: ProjectMemory, brain: BaseBrain) -> None:
+    subcmd, _, args = rest.partition(" ")
+    subcmd = subcmd.lower()
+    args = args.strip()
+    
+    if subcmd == "index":
+        target = Path(args) if args else Path(".")
+        if not target.exists():
+            console.print(f"[red]Directory not found: {target}[/red]")
+            return
+        
+        console.print(f"Indexing workspace: {target.resolve()}")
+        try:
+            count = project.index_workspace(target, brain)
+            console.print(f"Indexed {count} new or changed files.")
+        except Exception as e:
+            console.print(f"[red]Failed to index: {e}[/red]")
+            
+    elif subcmd == "list":
+        rows = project.conn.execute("SELECT project_id, path, summary FROM project_files").fetchall()
+        if not rows:
+            console.print("No files indexed. Run `project index .` first.")
+            return
+            
+        table = Table(title="Indexed Project Files")
+        table.add_column("project_id", justify="right")
+        table.add_column("path")
+        table.add_column("summary")
+        
+        for r in rows:
+            table.add_row(str(r["project_id"]), r["path"], r["summary"][:60])
+        console.print(table)
+    else:
+        console.print("[yellow]usage: project index <dir> | project list[/yellow]")
 
 
 def _print_facts(semantic: SemanticMemory) -> None:
@@ -79,12 +177,23 @@ def _print_facts(semantic: SemanticMemory) -> None:
         table.add_row(str(fact.id), fact.topic or "-", fact.text, fact.source_type, f"{fact.confidence:.2f}")
     console.print(table)
 
+def _print_skills(procedural: ProceduralMemory) -> None:
+    table = Table(title="Procedural memory (Skills)")
+    table.add_column("id", justify="right")
+    table.add_column("name")
+    table.add_column("tier")
+    table.add_column("path")
+    for skill in procedural.list():
+        table.add_row(str(skill.id), skill.name, skill.verification_tier, skill.file_path)
+    console.print(table)
 
-def _print_stats(semantic: SemanticMemory, episodic: EpisodicMemory, procedural: ProceduralMemory) -> None:
+def _print_stats(semantic: SemanticMemory, episodic: EpisodicMemory, procedural: ProceduralMemory, project: ProjectMemory) -> None:
     table = Table(title="Memory stats")
     table.add_column("store")
     table.add_column("count", justify="right")
     table.add_row("semantic facts", str(semantic.count()))
     table.add_row("episodic log entries", str(episodic.count()))
-    table.add_row("skills (stub)", str(procedural.count()))
+    table.add_row("skills", str(procedural.count()))
+    table.add_row("project files", str(project.count()))
     console.print(table)
+

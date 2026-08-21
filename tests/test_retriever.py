@@ -8,6 +8,8 @@ from agent.engine.retriever import Retriever
 from agent.memory.embeddings import EmbeddingEngine
 from agent.memory.episodic import EpisodicMemory
 from agent.memory.semantic import SemanticMemory
+from agent.memory.project import ProjectMemory
+from agent.brains.mock_brain import MockBrain
 from agent.models import Fact
 
 
@@ -16,8 +18,10 @@ def retriever(tmp_path):
     embedder = EmbeddingEngine(force_fallback=True)
     semantic = SemanticMemory(tmp_path / "semantic.db", embedder)
     episodic = EpisodicMemory(tmp_path / "episodic.db")
+    project = ProjectMemory(tmp_path / "projects.db", embedder)
+    brain = MockBrain(embedder=embedder)
     semantic.add_fact(Fact(text="git status shows the working tree state.", topic="git", confidence=0.9))
-    return Retriever(semantic, episodic)
+    return Retriever(semantic, episodic, project, brain)
 
 
 def test_close_match_is_confident(retriever):
@@ -52,7 +56,9 @@ def test_empty_memory_always_refuses(tmp_path):
     embedder = EmbeddingEngine(force_fallback=True)
     semantic = SemanticMemory(tmp_path / "semantic_empty.db", embedder)
     episodic = EpisodicMemory(tmp_path / "episodic_empty.db")
-    retriever = Retriever(semantic, episodic)
+    project = ProjectMemory(tmp_path / "projects_empty.db", embedder)
+    brain = MockBrain(embedder=embedder)
+    retriever = Retriever(semantic, episodic, project, brain)
     result = retriever.retrieve("anything at all")
     assert result.tier == "refused"
     assert result.score == 0.0

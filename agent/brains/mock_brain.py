@@ -22,7 +22,17 @@ class MockBrain(BaseBrain):
         self._embedder = embedder
 
     def generate(self, prompt: str) -> str:
-        return "MockBrain cannot generate free-form text. Configure a real brain for that (Phase 1)."
+        # A simple deterministic "generation" for tests
+        if "write two Python scripts" in prompt or "skill code" in prompt:
+            return '''
+{
+  "skill_name": "email_normalizer",
+  "description": "Validates and normalizes email strings",
+  "code": "import re\\n\\ndef execute():\\n    pass\\n",
+  "test_code": "import unittest\\n\\nclass TestEmail(unittest.TestCase):\\n    def test_pass(self):\\n        self.assertTrue(True)\\n"
+}
+'''
+        return f"[Mock generation for prompt: {prompt[:30]}...]"
 
     def embed(self, text: str) -> list[float]:
         if self._embedder is None:

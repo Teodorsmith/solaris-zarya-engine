@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
 
 from pydantic import BaseModel, Field
 
@@ -49,4 +49,40 @@ class Skill(BaseModel):
     verification_tier: Literal["mock", "real_local", "real_external"] = "mock"
     success_count: int = 0
     fail_count: int = 0
+    created_at: str = Field(default_factory=_now)
+
+
+class SkillResultSchema(BaseModel):
+    """Immutable output schema enforced by the Phase 2 Validator.
+    Any skill run must print a JSON object matching this schema."""
+    skill_name: str
+    status: Literal["ok", "error"]
+    result: Any = None
+    errors: list[str] = Field(default_factory=list)
+
+
+class Project(BaseModel):
+    id: Optional[int] = None
+    name: str
+    root_path: str
+    created_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+
+
+class ProjectFile(BaseModel):
+    id: Optional[int] = None
+    project_id: int
+    path: str
+    sha256_hash: str
+    summary: str
+    created_at: str = Field(default_factory=_now)
+    updated_at: str = Field(default_factory=_now)
+
+
+class ProjectDecision(BaseModel):
+    id: Optional[int] = None
+    project_id: int
+    title: str
+    content: str
+    related_files_json: str = "[]"
     created_at: str = Field(default_factory=_now)

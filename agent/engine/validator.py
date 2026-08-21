@@ -1,0 +1,241 @@
+import ast
+import json
+import logging
+import os
+import subprocess
+import tempfile
+import sys
+from typing import Optional
+
+from agent.models import SkillResultSchema
+
+logger = logging.getLogger(__name__)
+
+ALLOWED_MODULES = {
+    "json",
+    "re",
+    "math",
+    "typing",
+    "dataclasses",
+    "datetime",
+    "collections",
+    "pathlib",
+    "textwrap",
+    "enum",
+    "uuid",
+    "hashlib",
+    "base64",
+    "copy",
+    "functools",
+    "itertools",
+    "unittest",
+}
+
+class SecurityError(Exception):
+    pass
+
+class ASTSecurityScanner(ast.NodeVisitor):
+    def __init__(self, skill_name: Optional[str] = None):
+        self.errors = []
+        self.skill_name = skill_name
+        # These are dangerous built-in functions / attributes that cannot be used.
+        self.banned_names = {
+            "eval", "exec", "compile", "globals", "locals", "vars",
+            "getattr", "setattr", "delattr", "__import__", "open"
+        }
+        self.banned_attrs = {
+            "__subclasses__", "__bases__", "__mro__", "__globals__", 
+            "__dict__", "__class__", "__builtins__"
+        }
+
+    def _get_root_module(self, module_name: str) -> str:
+        return module_name.split(".")[0]
+
+    def visit_Import(self, node: ast.Import):
+        for alias in node.names:
+            root_mod = self._get_root_module(alias.name)
+            if root_mod not in ALLOWED_MODULES and root_mod != self.skill_name:
+                self.errors.append(f"Importing module '{alias.name}' is forbidden.")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        if node.module is not None:
+            root_mod = self._get_root_module(node.module)
+            if root_mod not in ALLOWED_MODULES and root_mod != self.skill_name:
+                self.errors.append(f"Importing from '{node.module}' is forbidden.")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call):
+        if isinstance(node.func, ast.Name):
+            if node.func.id in self.banned_names:
+                self.errors.append(f"Function '{node.func.id}' is forbidden.")
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr in self.banned_names:
+                self.errors.append(f"Attribute '{node.func.attr}' is forbidden.")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute):
+        if node.attr in self.banned_attrs:
+            self.errors.append(f"Access to '{node.attr}' is forbidden.")
+        self.generic_visit(node)
+        
+    def visit_Name(self, node: ast.Name):
+        if node.id in self.banned_attrs or node.id in self.banned_names:
+            self.errors.append(f"Access to '{node.id}' is forbidden.")
+        self.generic_visit(node)
+
+def validate_ast(code: str, skill_name: Optional[str] = None) -> None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        raise SecurityError(f"SyntaxError: {e}")
+
+    scanner = ASTSecurityScanner(skill_name)
+    scanner.visit(tree)
+    if scanner.errors:
+        raise SecurityError("AST Validation Failed:\n" + "\n".join(scanner.errors))
+
+class SkillValidator:
+    def __init__(self, timeout_seconds: int = 5):
+        self.timeout_seconds = timeout_seconds
+
+    def validate_and_run(self, skill_name: str, code: str, test_code: str) -> SkillResultSchema:
+        """
+        1. Parse and validate AST for both skill and tests.
+        2. Write to a temporary directory.
+        3. Run unit tests.
+        4. (Phase 2 limitation) We don't have real-world input yet, so passing tests is sufficient to "verify" logic.
+        Since we need to enforce SkillResultSchema, we generate a small harness to run the entrypoint, 
+        but in Phase 2 it's just mock verification.
+        """
+        validate_ast(code, skill_name=skill_name)
+        validate_ast(test_code, skill_name=skill_name)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_path = os.path.join(tmpdir, f"{skill_name}.py")
+            test_path = os.path.join(tmpdir, f"test_{skill_name}.py")
+
+            with open(skill_path, "w", encoding="utf-8") as f:
+                f.write(code)
+
+            with open(test_path, "w", encoding="utf-8") as f:
+                f.write(f"{code}\n\n{test_code}")
+
+            # 1. Run Unit Tests
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "unittest", f"test_{skill_name}.py"],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds
+                )
+                if proc.returncode != 0:
+                    raise SecurityError(f"Unit tests failed:\n{proc.stderr}\n{proc.stdout}")
+            except subprocess.TimeoutExpired as e:
+                self._kill_tree(proc.pid if 'proc' in locals() else None)
+                raise SecurityError(f"Test execution timed out after {self.timeout_seconds} seconds.")
+
+            # 2. To enforce SkillResultSchema, we would normally run the skill with real input here.
+            # For Phase 2, passing the generated tests implies logic is sound, but we still ensure
+            # it returns a standard JSON result. We write a minimal harness.
+            harness_code = f"""
+import json
+import traceback
+try:
+    from {skill_name} import execute
+    res = execute()
+    print(json.dumps({{"skill_name": "{skill_name}", "status": "ok", "result": res, "errors": []}}))
+except Exception as e:
+    print(json.dumps({{"skill_name": "{skill_name}", "status": "error", "result": None, "errors": [str(e)]}}))
+"""
+            harness_path = os.path.join(tmpdir, "run_harness.py")
+            with open(harness_path, "w", encoding="utf-8") as f:
+                f.write(harness_code)
+
+            try:
+                hproc = subprocess.run(
+                    [sys.executable, "run_harness.py"],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds
+                )
+                
+                # Try to parse the last line as JSON
+                lines = [line.strip() for line in hproc.stdout.strip().split('\\n') if line.strip()]
+                if not lines:
+                    raise SecurityError(f"Harness produced no output. Stderr: {hproc.stderr}")
+                
+                try:
+                    result_json = json.loads(lines[-1])
+                    return SkillResultSchema(**result_json)
+                except json.JSONDecodeError:
+                    raise SecurityError(f"Harness did not print valid JSON. Output: {hproc.stdout}")
+                    
+            except subprocess.TimeoutExpired:
+                self._kill_tree(hproc.pid if 'hproc' in locals() else None)
+                raise SecurityError(f"Harness execution timed out after {self.timeout_seconds} seconds.")
+
+    def _kill_tree(self, pid: Optional[int]):
+        if not pid:
+            return
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+
+    def run_saved_skill(self, skill, args_raw: str) -> SkillResultSchema:
+        """Run a skill that is already saved in the filesystem (from procedural memory) with arguments."""
+        # args_raw should be a JSON string like '{"s1": "foo", "s2": "bar"}'
+        if not args_raw.strip():
+            args_raw = "{}"
+        
+        try:
+            # Validate that it's proper JSON before running
+            json.loads(args_raw)
+        except json.JSONDecodeError as e:
+            raise SecurityError(f"Arguments must be valid JSON. Error: {e}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # We copy the skill file to the tmpdir to run it
+            skill_path = os.path.join(tmpdir, f"{skill.name}.py")
+            with open(skill.file_path, "r", encoding="utf-8") as f_in, open(skill_path, "w", encoding="utf-8") as f_out:
+                f_out.write(f_in.read())
+
+            # Now write a harness that calls the skill's execute() method with args_raw
+            harness_code = f"""
+import json
+import traceback
+try:
+    from {skill.name} import execute
+    args = json.loads('''{args_raw}''')
+    res = execute(**args)
+    print(json.dumps({{"skill_name": "{skill.name}", "status": "ok", "result": res, "errors": []}}))
+except Exception as e:
+    print(json.dumps({{"skill_name": "{skill.name}", "status": "error", "result": None, "errors": [str(e), traceback.format_exc()]}}))
+"""
+            harness_path = os.path.join(tmpdir, "run_harness.py")
+            with open(harness_path, "w", encoding="utf-8") as f:
+                f.write(harness_code)
+
+            try:
+                hproc = subprocess.run(
+                    [sys.executable, "run_harness.py"],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds
+                )
+                
+                lines = [line.strip() for line in hproc.stdout.strip().split('\n') if line.strip()]
+                if not lines:
+                    raise SecurityError(f"Harness produced no output. Stderr: {hproc.stderr}")
+                
+                try:
+                    result_json = json.loads(lines[-1])
+                    return SkillResultSchema(**result_json)
+                except json.JSONDecodeError:
+                    raise SecurityError(f"Harness did not print valid JSON. Output: {hproc.stdout}")
+                    
+            except subprocess.TimeoutExpired:
+                self._kill_tree(hproc.pid if 'hproc' in locals() else None)
+                raise SecurityError(f"Harness execution timed out after {self.timeout_seconds} seconds.")
