@@ -171,9 +171,12 @@ python threshold_sweep.py
 
 ---
 
-## License
+## Licensing & Commercial Inquiries
 
-This project is licensed under the **GNU General Public License v3.0** (GPL-3.0-or-later). See the [LICENSE](LICENSE) file for the full license text.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
 
-Copyright (C) 2026 Teodor Smith.
+### Commercial Licensing & Custom Engagements
+For enterprises seeking proprietary, non-GPL integration exemptions, custom skill development, or dedicated support:
+* **Contact:** [teosmith.studios@gmail.com](mailto:teosmith.studios@gmail.com)
+
 
