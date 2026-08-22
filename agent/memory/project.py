@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -15,6 +16,7 @@ from agent.brains.mock_brain import MockBrain
 from agent.memory.embeddings import EmbeddingEngine
 from agent.models import Project, ProjectFile
 
+logger = logging.getLogger(__name__)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -103,6 +105,26 @@ class ProjectMemory:
             project_id = cur.lastrowid
             
         return Project(id=project_id, name=name, root_path=path_str)
+
+    @property
+    def active_root(self) -> Path | None:
+        """Return the root path of the most recently updated indexed project.
+
+        This is the canonical workspace root used by ``upsert_file`` when no
+        explicit ``project_root`` is passed.  Returns ``None`` if no project
+        has been indexed yet.
+        """
+        row = self.conn.execute(
+            "SELECT root_path FROM projects ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+        return Path(row["root_path"]) if row else None
+
+    def get_project_root(self, project_id: int) -> Path | None:
+        """Return the root path for a specific project_id."""
+        row = self.conn.execute(
+            "SELECT root_path FROM projects WHERE id=?", (project_id,)
+        ).fetchone()
+        return Path(row["root_path"]) if row else None
 
     def _is_ignorable(self, path: Path) -> bool:
         if path.name.startswith("."):
@@ -200,6 +222,104 @@ class ProjectMemory:
         except Exception:
             # Fallback if API fails
             return _heuristic_summary(Path(rel_path), content)
+
+    def upsert_file(
+        self,
+        file_path: str | Path,
+        brain: BaseBrain | None = None,
+        project_root: str | Path | None = None,
+    ) -> bool:
+        """Index or refresh a single file into Project Memory.
+
+        Intended as a fire-and-forget hook called immediately after any
+        file write so the agent can find its own output without a full
+        ``project index`` scan.
+
+        Args:
+            file_path:    Absolute (or cwd-relative) path to the written file.
+            brain:        Brain used for summarisation. Falls back to
+                          heuristic if ``None`` or ``MockBrain``.
+            project_root: Root directory for the project entry. Defaults to
+                          ``active_root`` (the most recently indexed project),
+                          then falls back to ``file_path.parent`` if no
+                          project has ever been indexed.
+
+        Returns:
+            ``True`` if the row was inserted/updated, ``False`` if skipped
+            (ignored extension, too large, unchanged hash, or any error).
+        """
+        try:
+            path = Path(file_path).resolve()
+
+            if not path.exists() or not path.is_file():
+                logger.debug("upsert_file: %s does not exist or is not a file — skipping.", path)
+                return False
+
+            if self._is_ignorable(path):
+                logger.debug("upsert_file: %s is ignorable — skipping.", path)
+                return False
+
+            # Resolve project root: explicit arg > active_root > file's own dir
+            if project_root is not None:
+                root = Path(project_root).resolve()
+            elif self.active_root is not None:
+                root = self.active_root
+            else:
+                root = path.parent
+
+            project = self.get_or_create_project(root)
+
+            # Use a path relative to root for the stored key; fall back to
+            # just the filename if the file is outside root somehow.
+            try:
+                rel_path = path.relative_to(root).as_posix()
+            except ValueError:
+                rel_path = path.name
+
+            file_hash = _hash_file(path)
+
+            # Skip if already indexed at this exact hash (no change)
+            existing_row = self.conn.execute(
+                "SELECT sha256_hash FROM project_files WHERE project_id=? AND path=?",
+                (project.id, rel_path),
+            ).fetchone()
+            if existing_row and existing_row["sha256_hash"] == file_hash:
+                logger.debug("upsert_file: %s unchanged — skipping.", rel_path)
+                return False
+
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                logger.debug("upsert_file: %s is not valid UTF-8 — skipping.", path)
+                return False
+
+            effective_brain = brain if brain is not None else MockBrain()
+            summary = self._summarize_file(rel_path, content, effective_brain)
+            vec = self.embedder.embed(f"File {rel_path}: {summary}")
+
+            with self.conn:
+                self.conn.execute(
+                    """
+                    INSERT INTO project_files
+                        (project_id, path, sha256_hash, summary, embedding, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(project_id, path) DO UPDATE SET
+                        sha256_hash = excluded.sha256_hash,
+                        summary     = excluded.summary,
+                        embedding   = excluded.embedding,
+                        updated_at  = excluded.updated_at
+                    """,
+                    (project.id, rel_path, file_hash, summary, json.dumps(vec), _now(), _now()),
+                )
+
+            logger.info("upsert_file: indexed %s (project_id=%s)", rel_path, project.id)
+            return True
+
+        except Exception as exc:
+            # Non-fatal — the file write already succeeded; we just missed
+            # the index update.  The next manual `project index` will catch it.
+            logger.warning("upsert_file: failed to index %s — %s", file_path, exc)
+            return False
 
     def search(self, query: str, top_k: int = 5) -> list[ProjectFile]:
         """Dense cosine similarity search on project files."""

@@ -28,6 +28,8 @@ Commands:
   project index <dir>  Index workspace directory into Project Memory.
   project list         List indexed project files.
   stats                Show memory counts.
+  brain switch <provider> [model]  Switch active brain (gemini, groq, openai, local, mock).
+  brain list           Show registered providers and current brain.
   help                 Show this message.
   exit                 Quit.
 """
@@ -43,9 +45,15 @@ def run_repl(
     embedder: EmbeddingEngine
 ) -> None:
     from agent.engine.state_machine import TaskFSM
+    from agent.brains.factory import BrainManager
     from agent.config import ACTIVE_TASK_JSON, STATE_MANIFEST_JSON
+
+    # Wrap the initial brain in a BrainManager so `brain switch` can hot-swap it.
+    brain_manager = BrainManager.__new__(BrainManager)
+    brain_manager._embedder = embedder
+    brain_manager._brain = brain
     
-    brain_name = brain.__class__.__name__
+    brain_name = brain_manager.brain.__class__.__name__
     console.print(f"[bold cyan]Agent REPL — Phase 3 (Brain: {brain_name})[/bold cyan]")
     console.print(HELP)
 
@@ -91,7 +99,7 @@ def run_repl(
             break
         
         try:
-            dispatch_command(command, rest, semantic, episodic, procedural, project, goals, brain)
+            dispatch_command(command, rest, semantic, episodic, procedural, project, goals, brain_manager)
         except Exception as e:
             console.print(f"[bold red]System Error:[/bold red] {e}")
 
@@ -104,16 +112,25 @@ def dispatch_command(
     procedural: ProceduralMemory,
     project: ProjectMemory,
     goals: GoalMemory,
-    brain: BaseBrain,
+    brain_or_manager,  # BaseBrain (legacy) or BrainManager
 ) -> None:
     from agent.engine.state_machine import TaskFSM
     from agent.engine.task_planner import TaskPlanner
     from agent.engine.governor import PermissionGovernor
+    from agent.brains.factory import BrainManager
     from agent.config import ACTIVE_TASK_JSON, STATE_MANIFEST_JSON
+
+    # Support both a bare brain and a BrainManager (from run_repl)
+    if isinstance(brain_or_manager, BrainManager):
+        brain_manager = brain_or_manager
+        brain = brain_manager.brain
+    else:
+        brain_manager = None
+        brain = brain_or_manager
 
     retriever = Retriever(semantic, episodic, project, brain)
     validator = SkillValidator()
-    synthesizer = SkillSynthesizer(brain, retriever, procedural, validator)
+    synthesizer = SkillSynthesizer(brain, retriever, procedural, validator, project=project)
     fsm = TaskFSM(ACTIVE_TASK_JSON, STATE_MANIFEST_JSON)
     planner = TaskPlanner(brain, goals)
     governor = PermissionGovernor(episodic)
@@ -213,14 +230,17 @@ def dispatch_command(
                 goals_db=goals,
                 brain=brain,
                 procedural=procedural,
-                validator=validator
+                validator=validator,
+                project_memory=project,
             )
             console.print(f"[bold green]{result}[/bold green]")
         except Exception as e:
             console.print(f"[bold red]Task execution failed: {e}[/bold red]")
         
+    elif command == "brain":
+        _handle_brain_cmd(rest, brain_manager)
     else:
-        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
+        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")  
 
 
 def _handle_project_cmd(rest: str, project: ProjectMemory, brain: BaseBrain) -> None:
@@ -290,3 +310,59 @@ def _print_stats(semantic: SemanticMemory, episodic: EpisodicMemory, procedural:
     table.add_row("project files", str(project.count()))
     console.print(table)
 
+
+def _handle_brain_cmd(rest: str, brain_manager) -> None:
+    """Handle `brain switch <provider> [model]` and `brain list`."""
+    if brain_manager is None:
+        console.print("[red]Brain switching is not available in this context.[/red]")
+        return
+
+    subcmd, _, args = rest.partition(" ")
+    subcmd = subcmd.strip().lower()
+    args = args.strip()
+
+    if subcmd == "list":
+        providers = brain_manager.list_available()
+        current = brain_manager.brain.__class__.__name__
+        table = Table(title="Brain Providers")
+        table.add_column("provider")
+        table.add_column("status")
+        for p in providers:
+            status = f"[green]active ({current})[/green]" if current.lower().startswith(p.replace("_", "")) else ""
+            table.add_row(p, status)
+        console.print(table)
+        console.print(f"Active brain: [bold cyan]{current}[/bold cyan]")
+        if hasattr(brain_manager.brain, "model"):
+            # Safe print — only show base_url (no query strings) and model
+            base = getattr(brain_manager.brain, "base_url", "")
+            safe_base = base.split("?")[0] if base else "n/a"
+            console.print(f"  provider=local  base_url={safe_base}  model={brain_manager.brain.model}")
+
+    elif subcmd == "switch":
+        if not args:
+            console.print("[yellow]usage: brain switch <provider> [model][/yellow]")
+            console.print("Providers: " + ", ".join(brain_manager.list_available()))
+            return
+
+        parts = args.split()
+        provider = parts[0]
+        model = parts[1] if len(parts) > 1 else "auto"
+
+        console.print(f"Switching brain to [bold]{provider}[/bold] (model={model})...")
+        new_brain = brain_manager.switch_brain(provider, model=model)
+        new_name = new_brain.__class__.__name__
+
+        # Safe summary — never print API keys or query string tokens
+        base = getattr(new_brain, "base_url", "")
+        safe_base = base.split("?")[0] if base else "n/a"
+        actual_model = getattr(new_brain, "model", model)
+
+        console.print(f"[green]Brain switched.[/green]")
+        console.print(f"  provider={provider}")
+        if safe_base != "n/a":
+            console.print(f"  base_url={safe_base}")
+        console.print(f"  model={actual_model}")
+        console.print(f"  class={new_name}")
+
+    else:
+        console.print("[yellow]usage: brain switch <provider> [model] | brain list[/yellow]")

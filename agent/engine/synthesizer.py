@@ -2,12 +2,14 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Optional
 
 from agent.brains.base import BaseBrain
 from agent.engine.retriever import Retriever
 from agent.engine.validator import SkillValidator, SecurityError
 from agent.memory.procedural import ProceduralMemory
+from agent.memory.project import ProjectMemory
 from agent.models import Skill
 
 logger = logging.getLogger(__name__)
@@ -16,11 +18,19 @@ class SynthesizerError(Exception):
     pass
 
 class SkillSynthesizer:
-    def __init__(self, brain: BaseBrain, retriever: Retriever, procedural: ProceduralMemory, validator: SkillValidator):
+    def __init__(
+        self,
+        brain: BaseBrain,
+        retriever: Retriever,
+        procedural: ProceduralMemory,
+        validator: SkillValidator,
+        project: Optional[ProjectMemory] = None,
+    ):
         self.brain = brain
         self.retriever = retriever
         self.procedural = procedural
         self.validator = validator
+        self.project = project  # may be None — hook degrades gracefully
         self.max_retries = 2
 
     def _generate_skill_prompt(self, topic: str, context: str, error_feedback: Optional[str] = None) -> str:
@@ -92,8 +102,18 @@ Output ONLY a valid JSON object matching exactly this schema, with no markdown f
                 file_path = os.path.join(skills_dir, f"{skill_name}.py")
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code)
-                
-                # 3. Save to Procedural Memory
+
+                # 3. Auto-index into Project Memory so the file is immediately
+                #    searchable without needing a manual `project index .`
+                if self.project is not None:
+                    abs_path = Path(file_path).resolve()
+                    # Use the canonical root from the DB — avoids fragile
+                    # parent.parent path arithmetic that breaks for arbitrary paths.
+                    project_root = self.project.active_root or abs_path.parent
+                    self.project.upsert_file(abs_path, brain=self.brain, project_root=project_root)
+                    logger.info("Auto-indexed skill file: %s", file_path)
+
+                # 4. Save to Procedural Memory
                 skill = Skill(
                     name=skill_name,
                     description=description,

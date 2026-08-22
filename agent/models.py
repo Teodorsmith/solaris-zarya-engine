@@ -105,7 +105,16 @@ class TaskState(BaseModel):
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     updated_at: str = Field(default_factory=_now)
     step_index: int = 0
-    state: Literal["PENDING", "RUNNING", "VERIFYING", "COMMITTED", "FAILED"] = "PENDING"
+    state: Literal[
+        "PENDING",
+        "RUNNING",
+        "VERIFYING",
+        "COMMITTED",
+        "COMPLETED",
+        "FAILED",
+        "ABORTED",
+        "CANCELLED",
+    ] = "PENDING"
     consecutive_failures: int = 0
     goal_id: Optional[str] = None
     action_hash: Optional[str] = None

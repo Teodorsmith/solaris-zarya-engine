@@ -18,11 +18,12 @@ class BrainError(Exception):
 
 class GeminiBrain(BaseBrain):
     PREFERRED_MODELS = [
-        "gemini-2.5-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-1.5-pro",
     ]
 
     def __init__(self, api_key: str, model: str = "auto", rpm_limit: int = 15):
@@ -71,7 +72,7 @@ class GeminiBrain(BaseBrain):
             logger.warning(f"Gemini auto-discovery failed: {e}")
 
         # Safe static fallback if discovery fails or network is offline
-        return "gemini-2.5-flash"
+        return "gemini-3.6-flash"
 
     def _rate_limit_wait(self) -> None:
         """Enforce spacing between calls to stay within RPM bounds."""
