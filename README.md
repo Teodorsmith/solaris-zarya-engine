@@ -168,3 +168,12 @@ python threshold_sweep.py
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Deep technical specification covering memory schemas, retrieval mechanics, AST allowlists, FSM invariants, and future architectural horizons.
 - **[ROADMAP.md](ROADMAP.md)**: Tactical implementation roadmap across Phases 0–6, tracking completed milestones and multi-month engineering horizons.
+
+---
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0** (GPL-3.0-or-later). See the [LICENSE](LICENSE) file for the full license text.
+
+Copyright (C) 2026 Teodor Smith.
+

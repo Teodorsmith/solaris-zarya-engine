@@ -1,3 +1,15 @@
+[project]
+name = "solaris-zarya-engine"
+version = "0.1.0"
+description = "Autonomous AI Double with 4-Tier Persistent SQLite Memory, AST-Sandboxed Skill Synthesis, Crash-Resumable Task FSM, and Deterministic Permission Governance."
+authors = [
+    { name = "Teodor Smith" }
+]
+license = { text = "GPL-3.0-or-later" }
+readme = "README.md"
+requires-python = ">=3.10"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+

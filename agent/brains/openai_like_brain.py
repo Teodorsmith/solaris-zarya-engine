@@ -1,3 +1,10 @@
+# Copyright (C) 2026 Teodor Smith
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
 """Generic OpenAI-Compatible & Local LLM integration (Ollama, LM Studio, vLLM, OpenRouter)."""
 from __future__ import annotations
 
