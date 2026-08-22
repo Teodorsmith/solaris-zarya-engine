@@ -310,6 +310,7 @@ Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double
 
 - **OS-Level Containment**: Full gVisor sealed sandbox with read-only squashfs rootfs and 4 prebuilt Docker images (`sandbox-stdlib`, `sandbox-web`, `sandbox-scientific`, `sandbox-full`; Mitigations #38, #57–#60).
 - **Advanced Retrieval**: Hybrid Reciprocal Rank Fusion (dense ONNX + BM25 FTS5), calibrated confidence thresholds via labeled evaluation set (`calibration/queries.json`; Mitigations #30, #37, #53).
+- **Autonomous Deep Research & Academic Ingestion**: Structured paper search (arXiv API, Semantic Scholar Graph, CrossRef, Google Scholar), PDF section chunking (`pypdf`/`pymupdf`), bounded DAG research pipelines (max breadth/depth caps), and auto-indexing of synthesized research artifacts into Project Memory (Section 9.1).
 - **Web Ingestion Resiliency**: Multi-provider fetch chain (Jina Reader $\to$ Trafilatura $\to$ BeautifulSoup $\to$ Playwright) with domain authority scoring and abort guard (Mitigations #4, #5, #27, #39).
 - **Arbitrary Provider Registry**: Dynamic user-editable `brains.json` supporting custom local/cloud OpenAI-compatible endpoints (Mitigation #56).
 

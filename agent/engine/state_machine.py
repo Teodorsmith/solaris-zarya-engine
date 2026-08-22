@@ -198,6 +198,17 @@ class TaskFSM:
                 ctx = "\n\n".join(ctx_parts) if ctx_parts else "No prior step dependencies."
 
                 if ready_goal.required_tier == 0:
+                    # Auto-detect misclassified file-write goals (second line of
+                    # defence after the planner's deterministic override).
+                    if self._is_file_action(ready_goal.description):
+                        logger.warning(
+                            "Executor detected file-action in Tier-0 goal '%s' — "
+                            "escalating to Tier 2.",
+                            ready_goal.description,
+                        )
+                        ready_goal.required_tier = 2
+
+                if ready_goal.required_tier == 0:
                     prompt = (
                         f"You are executing a sub-goal in an autonomous task.\n"
                         f"Goal: {ready_goal.description}\n"
@@ -208,8 +219,9 @@ class TaskFSM:
                     result = brain.generate(prompt)
 
                 elif ready_goal.required_tier >= 2:
-                    # Tier-2: file-write action.
-                    # Ask the brain to produce the file content, then write it.
+                    # Tier-2: file-write action with per-file HITL approval.
+                    # Ask the brain to produce the file content first so the
+                    # user can see what will be written before approving.
                     prompt = (
                         f"You are executing a file-write step in an autonomous task.\n"
                         f"Goal: {ready_goal.description}\n"
@@ -220,9 +232,20 @@ class TaskFSM:
                     )
                     file_content = brain.generate(prompt)
 
-                    # Extract filename from goal description.
-                    # Looks for quoted names, .md/.py/.txt extensions, or
-                    # falls back to a sanitised slug of the description.
+                    # Determine filename early so the user sees it in the prompt
+                    filename = self._extract_filename(ready_goal.description)
+
+                    # Per-file HITL governor prompt — user must approve each write
+                    print(f"\n[GOVERNOR] Tier 2 — file-write action requires approval:")
+                    print(f"  Goal   : {ready_goal.description}")
+                    print(f"  File   : {filename}")
+                    print(f"  Preview: {file_content[:120].replace(chr(10), ' ')}...")
+                    response = input("  Proceed? [Y/n]: ").strip().lower()
+                    if response not in ("y", "yes", ""):
+                        raise RuntimeError(
+                            f"User denied file-write for '{filename}'. Task aborted."
+                        )
+
                     written_path = self._write_task_file(
                         ready_goal.description, file_content, project_memory, brain
                     )
@@ -261,10 +284,39 @@ class TaskFSM:
     # Internal helpers                                                     #
     # ------------------------------------------------------------------ #
 
+    # Keywords that signal a filesystem write at execution time.
+    # Used as a second safety net: if the planner misclassified a file-write
+    # goal as Tier 0 or 1, the executor detects it and escalates to Tier 2.
+    _FILE_ACTION_KEYWORDS: tuple[str, ...] = (
+        "create a new", "create file", "write a", "write file",
+        "write to file", "write the", "save to", "save file", "save a",
+        "output to file", "generate file", "produce file", "store to",
+        "write output", ".md", ".txt", ".py", ".json",
+        ".yaml", ".yml", ".rst", ".html", ".csv",
+    )
+
     _FILE_NAME_PATTERNS = [
         re.compile(r'["\']([\w./-]+\.[a-zA-Z]{1,5})["\']'),   # quoted filename
         re.compile(r'\b([\w-]+\.(?:md|txt|py|json|yaml|yml|rst|html|csv))\b'),  # bare extension
     ]
+
+    def _is_file_action(self, description: str) -> bool:
+        """Return True if *description* contains keywords that indicate a
+        filesystem write operation — used to catch goals the planner
+        misclassified as Tier 0 or 1."""
+        desc_lower = description.lower()
+        return any(kw in desc_lower for kw in self._FILE_ACTION_KEYWORDS)
+
+    def _extract_filename(self, goal_description: str) -> str:
+        """Extract the target filename from *goal_description*, or generate a
+        slug-based fallback.  Shared by the HITL preview and _write_task_file."""
+        for pat in self._FILE_NAME_PATTERNS:
+            m = pat.search(goal_description)
+            if m:
+                return m.group(1)
+        slug = re.sub(r"[^\w\s-]", "", goal_description.lower())
+        slug = re.sub(r"[\s-]+", "_", slug).strip("_")[:40]
+        return f"{slug or 'task_output'}.md"
 
     def _write_task_file(
         self,
@@ -279,19 +331,8 @@ class TaskFSM:
 
         Returns the path string that was written.
         """
-        # 1. Extract filename
-        filename: str | None = None
-        for pat in self._FILE_NAME_PATTERNS:
-            m = pat.search(goal_description)
-            if m:
-                filename = m.group(1)
-                break
-
-        if not filename:
-            # Slug-ify the description as last resort
-            slug = re.sub(r"[^\w\s-]", "", goal_description.lower())
-            slug = re.sub(r"[\s-]+", "_", slug).strip("_")[:40]
-            filename = f"{slug or 'task_output'}.md"
+        # 1. Extract filename (shared logic with HITL preview)
+        filename = self._extract_filename(goal_description)
 
         # 2. Resolve output path — write into workspace root when known
         if project_memory is not None and project_memory.active_root is not None:

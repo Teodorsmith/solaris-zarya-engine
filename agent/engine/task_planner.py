@@ -1,10 +1,40 @@
 """Task Planner: Decomposes tasks into Goal DAGs."""
 import logging
+import re
 from agent.brains.base import BaseBrain
 from agent.models import Goal
 from agent.memory.goals import GoalMemory
 
 logger = logging.getLogger(__name__)
+
+# Keywords that unambiguously signal a filesystem write operation.
+# Any goal whose description matches one of these is deterministically
+# upgraded to Tier 2, overriding whatever the LLM returned.
+_FILE_ACTION_HINTS: tuple[str, ...] = (
+    "create a new",
+    "create file",
+    "write a",
+    "write file",
+    "write to file",
+    "write the",
+    "save to",
+    "save file",
+    "save a",
+    "output to file",
+    "generate file",
+    "produce file",
+    "store to",
+    "write output",
+    ".md",
+    ".txt",
+    ".py",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".rst",
+    ".html",
+    ".csv",
+)
 
 class TaskPlanner:
     def __init__(self, brain: BaseBrain, goal_memory: GoalMemory):
@@ -49,17 +79,29 @@ class TaskPlanner:
 
     def plan_task(self, prompt: str, is_autonomous: bool = False) -> list[Goal]:
         max_depth = 2 if is_autonomous else 4
-        
+
         system_prompt = f"""
 You are a Task Planner. The user wants to: {prompt}
 
 Decompose this into a Directed Acyclic Graph (DAG) of sub-goals.
 Maximum depth allowed: {max_depth}.
 
-For each goal, assign a required_tier:
-- 0: Safe (Read-only, memory search)
-- 1: Sandboxed (Synthesize/test code in sandbox)
-- 2: Destructive/System (File writes, shell commands)
+For each goal, assign a required_tier using EXACTLY these rules — do not guess:
+
+  Tier 0 — Pure reasoning only (no external side-effects):
+    Read, search memory, summarise, outline, reason, draft text IN MEMORY.
+    Examples: "Research X", "Summarise Y", "Determine Z", "Plan steps".
+
+  Tier 1 — Sandboxed computational verification (no persistent output):
+    Run sandboxed code or math checks that produce no lasting files.
+    Examples: "Validate calculation", "Run unit test in sandbox".
+
+  Tier 2 — Filesystem or external mutations (REQUIRED for any file operation):
+    Create, write, modify, delete, move, or rename ANY file on disk.
+    THIS INCLUDES writing .md, .txt, .py, .json, or any other extension.
+    Examples: "Write summary.md", "Create phase4_ready.md",
+              "Save result to output.txt", "Generate report.md".
+    If a step creates or writes a file, required_tier MUST be 2. No exceptions.
 
 Output ONLY a JSON list of goals matching this schema:
 [
@@ -99,15 +141,15 @@ Use internal string IDs (like "goal_1") to set up dependencies.
         id_map = {}
         from uuid import uuid4
         plan_task_id = str(uuid4())
-        
+
         for p in parsed:
             new_id = str(uuid4())
             id_map[p["id"]] = new_id
-            
+
         for p in parsed:
             parent = id_map.get(p.get("parent_id")) if p.get("parent_id") else None
             deps = [id_map.get(d) for d in p.get("dependencies", []) if d in id_map]
-            
+
             goal = Goal(
                 id=id_map[p["id"]],
                 task_id=plan_task_id,
@@ -119,8 +161,30 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                 status="PENDING"
             )
             goals.append(goal)
-            
+
+        # Deterministic post-processing: upgrade any file-action goal to Tier 2
+        # regardless of what the LLM returned.  This is the safety net that
+        # prevents a model from accidentally marking a file write as Tier 0.
+        self._enforce_file_tiers(goals)
+
         return goals
+
+    @staticmethod
+    def _enforce_file_tiers(goals: list[Goal]) -> None:
+        """Deterministically upgrade goals that describe file operations to Tier 2.
+
+        Mutates *goals* in-place.  Called after LLM plan parsing so the
+        model cannot accidentally classify a file write as Tier 0 or 1.
+        """
+        for goal in goals:
+            desc_lower = goal.description.lower()
+            if any(hint in desc_lower for hint in _FILE_ACTION_HINTS):
+                if goal.required_tier < 2:
+                    logger.info(
+                        "Tier override: '%s' upgraded from Tier %d to Tier 2 (file-action keyword match).",
+                        goal.description, goal.required_tier,
+                    )
+                    goal.required_tier = 2
 
     def commit_plan(self, goals: list[Goal]) -> None:
         """Saves the approved plan to the goals database."""

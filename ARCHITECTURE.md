@@ -1814,6 +1814,67 @@ The engine is constructed in a strict **Memory Core $\to$ Project Grounding $\to
 
 ---
 
+## 9.1 Autonomous Deep Research & Scientific Knowledge Ingestion Specification
+
+### The Problem of Unbounded Learning Prompts
+A prompt like *"Learn everything about AI on the web"* is mathematically unbounded. When dispatched to an autonomous agent without programmatic boundaries, it fails for three structural reasons:
+1. **Infinite Crawl Graph & Budget Exhaustion**: The web contains petabytes of interconnected material. Without stopping criteria, autonomous recursion crawls indefinitely until disk space, memory, or LLM token budgets are depleted.
+2. **Vector Space Pollution (Retrieval Drift)**: Ingesting thousands of generic, broad web articles into Tier 2 Semantic Memory (`semantic.db`) floods the dense vector index with low-entropy noise. This degrades cosine similarity precision for specific technical queries.
+3. **Synthesis & Context Compression Bottlenecks**: Compressing massive multi-document web crawls forces aggressive summarization, collapsing deep mathematical models or precise API signatures into superficial trivia.
+
+### Prompt Scoping & Bounded Execution Matrix
+
+| Scoping Tier | Prompt Example | Planner Behavior | System Outcome |
+| :--- | :--- | :--- | :--- |
+| **Unbounded / Too Broad** | *"Learn everything about AI on the web."* | Creates vague DAG nodes (*"History of AI"*, *"Overview of Vision"*); scrapes generic blog summaries. | Shallow summaries, cluttered vector store, low engineering utility. |
+| **Bounded Topic** | *"Research current speculative decoding algorithms and save a comparative breakdown to `speculative_decoding.md`."* | Decomposes into 3–4 focused DAG queries, targets official documentation / papers, distills atomic facts. | High-signal semantic memory and a verified, actionable markdown reference. |
+| **Targeted Deep Dive** | *"Research Unity 6 Input System migration patterns and write a sample C# player controller."* | Gathers exact API syntax, creates functional code, verifies output, and indexes ASTs. | Executable code files and immediately queryable project facts. |
+
+### Academic & Scientific Repositories vs. Open Web Scraping
+For deep technical and mathematical learning, the engine prioritizes **academic and scientific repositories** (arXiv, Semantic Scholar, CrossRef, PubMed, Google Scholar) over general web crawling:
+- **High Signal-to-Noise Ratio**: Academic papers eliminate search-engine optimization (SEO) spam, marketing copy, and unverified blog posts, providing verified benchmarks, formal proofs, and exact mathematical formulations.
+- **Structured Layout Ingestion**: Papers adhere to standardized sections (*Abstract*, *Methodology*, *Results*, *Discussion*). The planner can ingest only the abstract first (Tier 0) to evaluate relevance before committing to full-text PDF parsing.
+- **Structured JSON APIs & DOIs**: Direct integration with arXiv API, Semantic Scholar Graph API, and CrossRef removes fragile HTML DOM scraping and bypasses anti-bot barriers.
+
+### Architectural Research Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ User Directive:                                                                         │
+│ task "Research 2024-2026 arXiv papers on Mamba vs Transformers and save to mamba.md"    │
+└────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                             │
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 1. TaskPlanner (DAG Decomposition with Hard Depth & Breadth Caps)                       │
+│    - Cap Breadth: max 4 DAG sub-goals                                                   │
+│    - Cap Sources: top 3 papers per query                                                │
+└────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                             │
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 2. Academic Ingestion (Tier 0 / Tier 1 MCP or Tool)                                    │
+│    - arXiv / Semantic Scholar API query -> Title, Abstract, PDF URL, Citations          │
+│    - Lightweight PDF Extraction (`pypdf` / `pymupdf`) -> Extract sections              │
+└────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                             │
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 3. Cognitive Distillation & Synthesis (Tier 0 Reasoning)                                │
+│    - Extract atomic facts -> Tier 2 Semantic Memory (dedup cosine >0.95)                │
+│    - Synthesize comparative technical markdown report                                   │
+└────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                             │
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 4. Artifact Persistence & Project Memory Indexing (Tier 2 Action)                       │
+│    - HITL Governor approval: [GOVERNOR] Approve writing `mamba_research.md`? [Y/n]      │
+│    - Atomic file write to workspace root                                                │
+│    - Immediate `project_memory.upsert_file()` -> file is instantly queryable by `ask`   │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+
 ## 10. Directory & File Structure
 
 ```
