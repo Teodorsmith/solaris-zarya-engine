@@ -36,7 +36,7 @@ Development proceeds along an incremental, verifiable ladder where each phase so
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
 ┌───────────────────────────────────▼────────────────────────────────────┐
-│ Phase 3: Supervised Planning, Task FSM & Chat/Stream Interaction       │
+│ Phase 3: Supervised Planning, Goal DAG & Crash-Resumable Task FSM      │
 │ (Hierarchical Goal DAG, On-Disk Task FSM, HITL Tiers, Crash Resume)   │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
@@ -156,32 +156,30 @@ Enable the agent to synthesize, test, and execute real Python tools on the machi
 
 ---
 
-## Phase 3: Supervised Planning, Task FSM & Chat/Stream Interaction
+## Phase 3: Supervised Planning, Goal DAG & Crash-Resumable Task FSM
 
 ### Objective
-Implement multi-step goal decomposition, on-disk crash-resilient Task FSM, Human-in-the-Loop (HITL) safety governors, and a live chat adapter (Twitch / Discord) with persistent viewer memory.
+Implement multi-step goal decomposition, on-disk crash-resilient Task FSM, and deterministic Human-in-the-Loop (HITL) safety governors accessible via the interactive CLI REPL.
 
 ### Scope & Files to Implement
 - `agent/memory/goals.py`: SQLite store (`goals.db`) for hierarchical DAG prerequisite trees with completion criteria (Mitigations #42, #47, #54).
-- `agent/engine/planner.py`: Curriculum Planner decomposing complex goals into conceptual, practical, and skill targets, computing `novelty_score` and `complexity_score` (Mitigations #26, #62, #67, #70).
-- `agent/engine/state_machine.py`: Deterministic Task FSM managing `data/active_task.json` through atomic transitions (`PENDING` $\to$ `RUNNING` $\to$ `VERIFYING` $\to$ `COMMITTED` $\to$ `FAILED`), enforcing a 5-step cap and 2-failure circuit breaker (Mitigation #49).
-- `agent/engine/governor.py`: Permission Governor enforcing Tier 0 (read/search), Tier 1 (sandboxed test), and Tier 2 (terminal `[Y/n]` confirmation for file writes and system actions; Mitigations #46, #54).
-- `agent/chat/`:
-  - `twitch_adapter.py` / `discord_adapter.py`: Chat connection adapter reading messages and streaming responses.
-  - Per-viewer interaction tracking in `episodic.db` (username, interaction history, preferences).
+- `agent/engine/task_planner.py`: Task Planner decomposing complex goals into DAG sub-goals with deterministic file-write tier overrides (Mitigations #42, #46).
+- `agent/engine/state_machine.py`: Deterministic Task FSM managing `data/active_task.json` and `data/state_manifest.json` through atomic transitions (`PENDING` $\to$ `RUNNING` $\to$ `VERIFYING` $\to$ `COMMITTED` $\to$ `COMPLETED`/`FAILED`), enforcing depth caps and crash recovery (Mitigation #49).
+- `agent/engine/governor.py`: Permission Governor enforcing Tier 0 (read/search), Tier 1 (sandboxed test), and Tier 2 (terminal `[Y/n]` confirmation for file writes, skill writes, and system actions; Mitigations #46, #54).
+- `agent/cli.py`: Interactive REPL supporting task planning, goal inspection, crash resumption, skill synthesis, and multi-brain switching.
 
 ### Key Safeguards Enforced
 - **Mitigation #42**: Directed Acyclic Goal Graph with prerequisite validation.
 - **Mitigation #46**: HITL Permission Tiers and step/token circuit breakers.
 - **Mitigation #47 & #54**: Goal tree depth caps (depth 2 autonomous; depth 3–4 requiring per-expansion `[Y/n]` approval).
-- **Mitigation #49**: Deterministic on-disk task state machine with single-atomic-action turns.
+- **Mitigation #49**: Deterministic on-disk task state machine with single-atomic-action turns and tamper manifest.
 
 ### Concrete Proof Milestone (Exit Gate)
 1. Multi-Step Task: `task "Research Docker CLI, extract facts, and synthesize a container inspect tool"`.
 2. Planner creates goal tree and starts `active_task.json`.
-3. Crash Simulation: Kill process at step 3 $\to$ Restart $\to$ Agent reads disk state, resumes at step 3 without repeating prior steps, prompts `[Y/n]` before final write, and commits.
-4. Chat Persistence Test: Viewer sends chat message $\to$ Agent answers $\to$ Viewer returns later $\to$ Agent remembers viewer context from `episodic.db`.
-5. Run unit tests: `pytest tests/test_goals.py tests/test_state_machine.py tests/test_governor.py` $\to$ All pass.
+3. Crash Simulation: Kill process during task $\to$ Restart $\to$ Agent reads disk state, resumes without repeating prior steps, prompts `[Y/n]` before final write, and commits.
+4. Governor Guard: File mutations and skill synthesis trigger explicit user confirmation and log audit trail to `episodic.db`.
+5. Run unit tests: `pytest tests/test_goals.py tests/test_state_machine.py tests/test_governor.py tests/test_task_planner.py` $\to$ All pass.
 
 ---
 
@@ -316,14 +314,41 @@ Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double
 
 ---
 
+## Engineering Velocity & Key Pitfalls
+
+### Remaining Implementation Effort
+Completing Phases 4 through 6 represents significant research and systems engineering depth. Realistic development estimates across these phases:
+
+- **Phase 4: Autonomous Maintenance & Metacognitive Reasoning (V2)**: **6 to 8 weeks**
+  - Heartbeat background daemon with perceive-evaluate-plan-act loop and rate limits.
+  - Persistent Self-Model (`data/self_model.json`) with tamper detection manifest.
+  - Tier 2.5 Reasoning Memory (`reasoning.db`) storing SHyAOEDRGL episodes.
+  - Lateral Critic (two-solver consensus + divergence arbitration) and ZPD binary search calibration.
+- **Phase 5: Domain Validation & Engine Integration (Unity / Blender MCP)**: **8 to 12 weeks**
+  - Unity MCP bridge daemon for C# Roslyn compilation, scene introspection, and headless UTF test runner.
+  - Blender headless MCP bridge for procedural 3D mesh synthesis, material assignment, and FBX/glTF asset export.
+  - Multi-runtime synthesizer extensions and automated git feature branching.
+- **Phase 6: Evolutionary Loop & Model Fine-Tuning (MoA / DPO Pipeline)**: **10 to 14 weeks**
+  - Mixture-of-Agents router separating intrinsic complexity from novelty.
+  - Automated Novelty & Entropy filtering pipeline formatting episodes into DPO pairs.
+  - Fine-tuning coordinator with benchmark promotion and automatic checkpoint rollback gates.
+
+### Main Pitfalls to Guard Against
+1. **Token Bloat in Web/PDF Scraping**: Ingesting entire 20-page arXiv PDFs directly into LLM prompts will blow through context windows and slow down local models. Ensure your parser chunks papers into abstracts, key sections, and embeddings before passing them to the brain.
+2. **Sandbox Timeout & Security**: When allowing the agent to run Python code dynamically (Tier 1), always enforce strict execution timeouts (e.g., max 10 seconds) and restrict subprocess network/filesystem permissions.
+3. **Prompt Drift in Smaller Models**: Local 7B/8B models can wander during long tool chains. Keep your tool definitions, schemas, and prompts compact, modular, and concise.
+
+---
+
 ## Build Execution Matrix
+
 
 | Phase | Milestone Name | Primary Test Target | Status |
 | :--- | :--- | :--- | :--- |
-| Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed (11/11 tests pass)** |
+| Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed** |
 | **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | ✅ **Completed** |
 | **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py` | ✅ **Completed** |
-| **Phase 3** | **Supervised Planning & Chat** | `tests/test_goals.py`, `tests/test_state_machine.py` | ✅ **Completed** |
-| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py` | 🟡 **Active Build Target** |
-| **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | ⚪ Queued |
-| **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py` | ⚪ Queued |
+| **Phase 3** | **Supervised Planning, Goal DAG & Task FSM REPL** | `tests/test_goals.py`, `tests/test_state_machine.py`, `tests/test_governor.py`, `tests/test_task_planner.py` | ✅ **Completed** |
+| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py` | 🟡 **Active Build Target (6–8 wks)** |
+| **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | ⚪ Queued (8–12 wks) |
+| **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py` | ⚪ Queued (10–14 wks) |

@@ -12,6 +12,21 @@
 > 
 > The agent is not merely a game-development harness. It is a **general self-learning autonomous agent with persistent multi-tier memory** that can assist with game development, general software engineering, deep research, system automation, and arbitrary complex workflows.
 
+> [!IMPORTANT]
+> ### IMPLEMENTATION STATUS: SUBSTRATE VS. EXTENDED HORIZONS
+> - **Active Implemented Core (Phases 0–3 CLI REPL)**:
+>   - **4-Tier SQLite WAL Memory**: `episodic.db`, `semantic.db`, `procedural.db`, `projects.db`, `goals.db`.
+>   - **Hybrid Retrieval & Gate**: FastEmbed ONNX (`bge-small-en-v1.5`) dense cosine + SQLite FTS5 BM25 weighted blend with direct 0.65 / 0.80 two-threshold confidence gate and closed-world refusal.
+>   - **Skill Execution Safety**: Host-side Python AST allowlist validator (`agent/engine/validator.py`) with subprocess test runner and 2-retry repair loop.
+>   - **Task DAG & FSM**: Goal DAG decomposition, deterministic file-write tier overrides, and crash-resilient `data/active_task.json` + `data/state_manifest.json` state machine.
+>   - **Permission Governor**: Centralized `PermissionGovernor` enforcing Tier 0/1/2 HITL approval, depth caps, and episodic audit logging.
+>   - **Brain Hot-Swapping**: `BrainManager` hot-swapping Gemini, Groq, OpenAI, Local Ollama/vLLM, and MockBrain.
+> - **Extended Target Specifications (Phases 4–6)**:
+>   - Metacognitive Heartbeat daemon, `data/self_model.json`, Tier 2.5 `reasoning.db`, and Lateral Critic (Phase 4).
+>   - Unity and Blender MCP bridges and headless UTF test runner (Phase 5).
+>   - Mixture-of-Agents routing and automated DPO fine-tuning pipeline (Phase 6).
+>   - Sealed OS containerization (Docker / gVisor).
+
 ---
 
 ## 1. Overview & Core Philosophy
@@ -1873,6 +1888,24 @@ For deep technical and mathematical learning, the engine prioritizes **academic 
 │    - Immediate `project_memory.upsert_file()` -> file is instantly queryable by `ask`   │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 9.2 Engineering Execution Estimates & Core Pitfalls
+
+### Remaining Implementation Effort
+- **Total Estimated Remaining Effort**: **16 to 24 active coding hours** (roughly 1 to 2 weeks at a steady pace) across Phases 4 through 6.
+
+### Core Architectural Pitfalls to Watch Out For
+1. **Token Bloat in Web/PDF Scraping**:
+   - *Risk*: Ingesting entire 20-page arXiv PDFs or deep documentation trees directly into LLM prompts quickly blows through context windows and degrades throughput on local models.
+   - *Architecture Invariant*: PDF and web parsers must chunk documents into structured sections (*Abstract*, *Key Findings*, *Methodology*), generate embeddings for vector retrieval, and pass only dense, high-signal passages to the LLM brain.
+2. **Sandbox Timeout & Security Constraints**:
+   - *Risk*: Dynamic execution of synthesized Python code (Tier 1) can hang on infinite loops or attempt unauthorized host access.
+   - *Architecture Invariant*: Subprocess runners must strictly enforce execution timeouts (e.g., max 5–10 seconds) and restrict subprocess filesystem and network permissions via AST allowlists and sandboxed envelopes.
+3. **Prompt Drift in Smaller / Local Models**:
+   - *Risk*: Local 7B/8B models (e.g., Llama 3.2, Qwen 2.5) tend to lose prompt adherence or hallucinate tool schemas during extended multi-turn tool chains.
+   - *Architecture Invariant*: Tool definitions, Pydantic schemas, and system prompts must be kept compact, modular, and concise with deterministic fallback overrides (e.g., `_enforce_file_tiers`).
 
 
 ## 10. Directory & File Structure

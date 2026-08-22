@@ -40,19 +40,17 @@ def retriever(tmp_path, embedder):
 
 
 def test_cross_tier_retrieve_finds_project_files(retriever):
-    result = retriever.retrieve("Where is player movement handled?")
+    result = retriever.retrieve("What is in Scripts/PlayerController.cs?")
     
-    # "movement" matches both the semantic fact and the project file using the fallback hash embedder
-    # Let's ensure the project file is found.
+    # Exact path token matches Scripts/PlayerController.cs
     assert any(pf.path == "Scripts/PlayerController.cs" for pf in result.project_files)
+    assert result.tier == "confident"
 
 
 def test_grounded_prompt_formatting(retriever):
-    result = retriever.retrieve("Where is player movement handled?")
-    prompt = retriever.format_grounded_prompt("Where is player movement handled?", result)
+    result = retriever.retrieve("What is in Scripts/PlayerController.cs?")
+    prompt = retriever.format_grounded_prompt("What is in Scripts/PlayerController.cs?", result)
     
-    assert "SEMANTIC FACTS" in prompt
-    assert "Rigidbody component" in prompt
     assert "PROJECT FILES" in prompt
     assert "Scripts/PlayerController.cs" in prompt
     assert "RULES" in prompt

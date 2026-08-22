@@ -321,8 +321,7 @@ class ProjectMemory:
             logger.warning("upsert_file: failed to index %s — %s", file_path, exc)
             return False
 
-    def search(self, query: str, top_k: int = 5) -> list[ProjectFile]:
-        """Dense cosine similarity search on project files."""
+    def _ranked(self, query: str) -> list[tuple[sqlite3.Row, float]]:
         rows = self.conn.execute("SELECT * FROM project_files").fetchall()
         if not rows:
             return []
@@ -336,17 +335,27 @@ class ProjectMemory:
             for row in rows
         ]
         scored.sort(key=lambda pair: pair[1], reverse=True)
-        
+        return scored
+
+    def search(self, query: str, top_k: int = 5, min_score: float = 0.0) -> list[ProjectFile]:
+        """Dense cosine similarity search on project files with optional score filter."""
+        ranked = self._ranked(query)
         results = []
-        for row, _score in scored[:top_k]:
-            results.append(
-                ProjectFile(
-                    id=row["id"], project_id=row["project_id"], path=row["path"], 
-                    sha256_hash=row["sha256_hash"], summary=row["summary"], 
-                    created_at=row["created_at"], updated_at=row["updated_at"]
+        for row, score in ranked[:top_k]:
+            if score >= min_score:
+                results.append(
+                    ProjectFile(
+                        id=row["id"], project_id=row["project_id"], path=row["path"], 
+                        sha256_hash=row["sha256_hash"], summary=row["summary"], 
+                        created_at=row["created_at"], updated_at=row["updated_at"]
+                    )
                 )
-            )
         return results
+
+    def top_score(self, query: str) -> float:
+        """Top cosine similarity score among indexed project files."""
+        ranked = self._ranked(query)
+        return ranked[0][1] if ranked else 0.0
 
     def count(self) -> int:
         return self.conn.execute("SELECT COUNT(*) FROM project_files").fetchone()[0]

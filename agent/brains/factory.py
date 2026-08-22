@@ -121,9 +121,13 @@ class BrainManager:
     * ``"local"``      → never fails startup even if /models is down.
     """
 
-    def __init__(self, embedder: EmbeddingEngine | None = None) -> None:
+    def __init__(
+        self,
+        embedder: EmbeddingEngine | None = None,
+        brain: BaseBrain | None = None,
+    ) -> None:
         self._embedder = embedder
-        self._brain: BaseBrain = get_brain(embedder)
+        self._brain: BaseBrain = brain if brain is not None else get_brain(embedder)
 
     @property
     def brain(self) -> BaseBrain:

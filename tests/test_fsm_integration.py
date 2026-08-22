@@ -35,3 +35,54 @@ def test_crash_resume_idempotency(tmp_path: Path):
     # 5. Assert that because it was RUNNING, it is not considered COMMITTED/EXECUTED
     # The executor must transition to VERIFYING to check side-effects.
     assert fsm2.is_action_executed(action_hash) is False
+
+
+def test_run_to_completion_requires_governor_for_tier2(tmp_path: Path):
+    from agent.models import Goal
+    from agent.memory.goals import GoalMemory
+    from agent.brains.mock_brain import MockBrain
+    from unittest.mock import patch
+
+    active_path = tmp_path / "active_task.json"
+    manifest_path = tmp_path / "state_manifest.json"
+    fsm = TaskFSM(active_path, manifest_path)
+    fsm.start_task("task_1")
+
+    goals_db = GoalMemory(tmp_path / "goals.db")
+    g1 = Goal(id="g1", task_id="task_1", description="Write summary.md", completion_criteria="done", required_tier=2)
+    goals_db.register(g1)
+    brain = MockBrain()
+
+    # Calling run_to_completion without governor on Tier 2 goal must raise
+    res = fsm.run_to_completion("task_1", goals_db, brain, governor=None)
+    assert "Task failed at step" in res
+    assert "requires a PermissionGovernor" in res
+
+
+def test_run_to_completion_with_governor_approval(tmp_path: Path):
+    from agent.models import Goal
+    from agent.memory.goals import GoalMemory
+    from agent.memory.episodic import EpisodicMemory
+    from agent.engine.governor import PermissionGovernor
+    from agent.brains.mock_brain import MockBrain
+    from unittest.mock import patch
+
+    active_path = tmp_path / "active_task.json"
+    manifest_path = tmp_path / "state_manifest.json"
+    fsm = TaskFSM(active_path, manifest_path)
+    fsm.start_task("task_2")
+
+    goals_db = GoalMemory(tmp_path / "goals.db")
+    g1 = Goal(id="g1", task_id="task_2", description="Write output.txt", completion_criteria="done", required_tier=2)
+    goals_db.register(g1)
+    brain = MockBrain()
+    episodic = EpisodicMemory(tmp_path / "episodic.db")
+    gov = PermissionGovernor(episodic)
+
+    # Approve with explicit 'y'
+    with patch("builtins.input", return_value="y"):
+        res = fsm.run_to_completion("task_2", goals_db, brain, governor=gov)
+        assert "completed successfully" in res
+
+    # Verify file was written and episodic log recorded
+    assert any("USER_APPROVED" in log.content for log in episodic.recent(10))

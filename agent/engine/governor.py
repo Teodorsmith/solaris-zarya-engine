@@ -49,14 +49,66 @@ class PermissionGovernor:
         print(f"Goal: {goal.description}")
         print(f"Action: {action_description}")
         
-        while True:
-            response = input("Approve? [Y/n]: ").strip().lower()
-            if response == 'y' or response == 'yes':
-                self._log_decision("USER_APPROVED", f"User approved action: {action_description}")
-                return True
-            elif response == 'n' or response == 'no':
-                self._log_decision("USER_DENIED", f"User denied action: {action_description}")
-                return False
+        response = input("Approve? [y/N]: ").strip().lower()
+        if response in ('y', 'yes'):
+            self._log_decision("USER_APPROVED", f"User approved action: {action_description}")
+            return True
+        else:
+            self._log_decision("USER_DENIED", f"User denied action (response='{response}'): {action_description}")
+            return False
+
+    def request_skill_write_permission(
+        self,
+        skill_name: str,
+        file_path: str,
+        code_preview: str,
+        is_autonomous: bool = False,
+    ) -> bool:
+        """Enforce HITL approval before writing validated skill code to disk."""
+        if is_autonomous:
+            self._log_decision("DENIED", f"Autonomous skill write disabled without supervisor approval for: {skill_name} ({file_path})")
+            return False
+
+        clean_preview = code_preview[:120].replace("\n", " ")
+        print(f"\n[GOVERNOR WAKE] Skill file write requires approval (Tier 2 Action):")
+        print(f"Skill: {skill_name}")
+        print(f"File : {file_path}")
+        print(f"Preview: {clean_preview}...")
+
+        response = input("Approve? [y/N]: ").strip().lower()
+        if response in ('y', 'yes'):
+            self._log_decision("USER_APPROVED", f"User approved skill file write: {skill_name} ({file_path})")
+            return True
+        else:
+            self._log_decision("USER_DENIED", f"User denied skill file write (response='{response}'): {skill_name} ({file_path})")
+            return False
+
+    def request_file_write_permission(
+        self,
+        file_path: str,
+        content_preview: str,
+        goal_description: str | None = None,
+        is_autonomous: bool = False,
+    ) -> bool:
+        """Enforce HITL approval before executing any file write mutation."""
+        if is_autonomous:
+            self._log_decision("DENIED", f"Autonomous file write denied for: {file_path}")
+            return False
+
+        clean_preview = content_preview[:120].replace("\n", " ")
+        print(f"\n[GOVERNOR WAKE] File write requires approval (Tier 2 Action):")
+        if goal_description:
+            print(f"Goal: {goal_description}")
+        print(f"File: {file_path}")
+        print(f"Preview: {clean_preview}...")
+
+        response = input("Approve? [y/N]: ").strip().lower()
+        if response in ('y', 'yes'):
+            self._log_decision("USER_APPROVED", f"User approved file write: {file_path}")
+            return True
+        else:
+            self._log_decision("USER_DENIED", f"User denied file write (response='{response}'): {file_path}")
+            return False
 
     def _log_decision(self, outcome: str, content: str) -> None:
         log = EpisodicLog(

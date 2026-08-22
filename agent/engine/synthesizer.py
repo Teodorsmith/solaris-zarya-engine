@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from agent.brains.base import BaseBrain
+from agent.engine.governor import PermissionGovernor
 from agent.engine.retriever import Retriever
 from agent.engine.validator import SkillValidator, SecurityError
 from agent.memory.procedural import ProceduralMemory
@@ -24,12 +25,14 @@ class SkillSynthesizer:
         retriever: Retriever,
         procedural: ProceduralMemory,
         validator: SkillValidator,
+        governor: PermissionGovernor,
         project: Optional[ProjectMemory] = None,
     ):
         self.brain = brain
         self.retriever = retriever
         self.procedural = procedural
         self.validator = validator
+        self.governor = governor
         self.project = project  # may be None — hook degrades gracefully
         self.max_retries = 2
 
@@ -95,15 +98,23 @@ Output ONLY a valid JSON object matching exactly this schema, with no markdown f
             try:
                 # 1. Validate AST and Run tests + harness
                 result_schema = self.validator.validate_and_run(skill_name, code, test_code)
-                
-                # 2. Persist to disk
+
+                # 2. Resolve target file path
                 skills_dir = "skills"
                 os.makedirs(skills_dir, exist_ok=True)
                 file_path = os.path.join(skills_dir, f"{skill_name}.py")
+
+                # 3. Governor check before writing to disk
+                if self.governor is None:
+                    raise SynthesizerError("Skill writing requires a PermissionGovernor.")
+                if not self.governor.request_skill_write_permission(skill_name, file_path, code):
+                    raise SynthesizerError(f"Skill file write for '{skill_name}' was denied by Governor.")
+                
+                # 4. Persist to disk
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code)
 
-                # 3. Auto-index into Project Memory so the file is immediately
+                # 5. Auto-index into Project Memory so the file is immediately
                 #    searchable without needing a manual `project index .`
                 if self.project is not None:
                     abs_path = Path(file_path).resolve()
@@ -113,7 +124,7 @@ Output ONLY a valid JSON object matching exactly this schema, with no markdown f
                     self.project.upsert_file(abs_path, brain=self.brain, project_root=project_root)
                     logger.info("Auto-indexed skill file: %s", file_path)
 
-                # 4. Save to Procedural Memory
+                # 6. Save to Procedural Memory
                 skill = Skill(
                     name=skill_name,
                     description=description,
@@ -123,7 +134,7 @@ Output ONLY a valid JSON object matching exactly this schema, with no markdown f
                     fail_count=0
                 )
                 self.procedural.register(skill)
-                logger.info(f"Successfully synthesized and validated skill '{skill_name}'")
+                logger.info(f"Successfully synthesized, validated, and registered skill '{skill_name}'")
                 return skill
 
             except SecurityError as e:

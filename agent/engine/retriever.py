@@ -51,22 +51,26 @@ class Retriever:
     def retrieve(self, query: str, top_k: int = 3) -> RetrievalResult:
         # 1. Retrieve Semantic Facts
         facts = self.semantic.search(query, top_k=top_k)
-        score = self.semantic.top_score(query)
+        semantic_score = self.semantic.top_score(query)
         
-        # 2. Retrieve Project Files
-        semantic_files = self.project.search(query, top_k=5)
+        # 2. Retrieve Project Files (filtered by TENTATIVE_THRESHOLD)
+        semantic_files = self.project.search(query, top_k=5, min_score=TENTATIVE_THRESHOLD)
+        project_score = self.project.top_score(query)
         
-        # Exact path matches
+        # 3. Exact path matches
         path_matches = []
         tokens = [t.strip('?.,;:"\'`') for t in query.split()]
-        path_tokens = [t for t in tokens if "/" in t or t.endswith(".py") or t.endswith(".md") or t.endswith(".txt")]
+        path_tokens = [
+            t for t in tokens 
+            if "/" in t or "\\" in t or any(t.endswith(ext) for ext in (".py", ".md", ".txt", ".cs", ".json", ".yaml", ".yml", ".toml", ".bat", ".sh"))
+        ]
         
         if path_tokens:
             rows = self.project.conn.execute("SELECT * FROM project_files").fetchall()
             for row in rows:
                 p = row["path"]
                 for t in path_tokens:
-                    if p == t or p.endswith("/" + t) or p.endswith("\\" + t):
+                    if p == t or p.endswith("/" + t) or p.endswith("\\" + t) or t.endswith(p):
                         path_matches.append(
                             ProjectFile(
                                 id=row["id"], project_id=row["project_id"], path=row["path"], 
@@ -78,24 +82,20 @@ class Retriever:
 
         project_files = merge_project_results(path_matches, semantic_files, k=5)
         
-        # We consider a result 'confident' or 'tentative' if EITHER the semantic score 
-        # is high enough, OR we found relevant project files (since project files
-        # don't share the exact same confidence metric calibration yet).
-        # For now, we lean on semantic score for the primary gate, but will pass
-        # both to the LLM.
+        # Determine overall best score across semantic and project modalities
+        has_path_match = len(path_matches) > 0
+        effective_score = max(semantic_score, project_score if semantic_files else 0.0)
+        if has_path_match:
+            effective_score = max(effective_score, 1.0)
         
-        # If we have project files but semantic score is low, let's bump it to tentative
-        # to let the LLM look at the files.
-        has_files = len(project_files) > 0
-        
-        if score >= CONFIDENT_THRESHOLD:
+        if effective_score >= CONFIDENT_THRESHOLD:
             tier = "confident"
-        elif score >= TENTATIVE_THRESHOLD or has_files:
+        elif effective_score >= TENTATIVE_THRESHOLD:
             tier = "tentative"
         else:
             tier = "refused"
             
-        return RetrievalResult(facts=facts, project_files=project_files, score=score, tier=tier)
+        return RetrievalResult(facts=facts, project_files=project_files, score=effective_score, tier=tier)
 
     def format_grounded_prompt(self, query: str, result: RetrievalResult) -> str:
         prompt = ""

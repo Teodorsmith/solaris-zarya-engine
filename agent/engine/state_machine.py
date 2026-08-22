@@ -122,6 +122,7 @@ class TaskFSM:
         procedural=None,
         validator=None,
         project_memory=None,
+        governor=None,
     ) -> str:
         """Execute all goals in the DAG to completion.
 
@@ -135,6 +136,8 @@ class TaskFSM:
                             written by a tier-2 goal is immediately indexed via
                             ``upsert_file`` so it is searchable without a manual
                             ``project index .``.
+            governor:       PermissionGovernor (optional). When provided, tier-2
+                            actions and file writes are routed through the governor.
         """
         # 1. Clean up orphaned pending goals from past aborted/interrupted runs
         if hasattr(goals_db, "abort_orphaned_goals"):
@@ -235,13 +238,18 @@ class TaskFSM:
                     # Determine filename early so the user sees it in the prompt
                     filename = self._extract_filename(ready_goal.description)
 
-                    # Per-file HITL governor prompt — user must approve each write
-                    print(f"\n[GOVERNOR] Tier 2 — file-write action requires approval:")
-                    print(f"  Goal   : {ready_goal.description}")
-                    print(f"  File   : {filename}")
-                    print(f"  Preview: {file_content[:120].replace(chr(10), ' ')}...")
-                    response = input("  Proceed? [Y/n]: ").strip().lower()
-                    if response not in ("y", "yes", ""):
+                    # Tier 2 file writes strictly require a PermissionGovernor
+                    if governor is None:
+                        raise RuntimeError(
+                            f"Task execution for Tier-2 file write '{filename}' requires a PermissionGovernor."
+                        )
+
+                    approved = governor.request_file_write_permission(
+                        file_path=filename,
+                        content_preview=file_content,
+                        goal_description=ready_goal.description,
+                    )
+                    if not approved:
                         raise RuntimeError(
                             f"User denied file-write for '{filename}'. Task aborted."
                         )

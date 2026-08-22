@@ -52,10 +52,61 @@ def test_governor_fail_closed():
         assert gov.request_permission("action", g1, all_goals) is False
         assert "USER_DENIED" in episodic.logs[-1].content
         
-    # Test empty input -> loops, side_effect returns "" then "n"
-    with patch("builtins.input", side_effect=["", "n"]):
+    # Test empty input -> immediately denies (fail closed)
+    with patch("builtins.input", return_value=""):
         assert gov.request_permission("action", g1, all_goals) is False
         assert "USER_DENIED" in episodic.logs[-1].content
 
     # Test trace_id presence
     assert getattr(episodic.logs[-1], "trace_id", None) is not None
+
+
+def test_governor_skill_write():
+    episodic = MockEpisodic()
+    gov = PermissionGovernor(episodic)
+
+    # Autonomous mode auto-denies
+    assert gov.request_skill_write_permission("calc_fib", "skills/calc_fib.py", "def execute(): ...", is_autonomous=True) is False
+    assert "DENIED" in episodic.logs[-1].content
+
+    # Supervised approval
+    with patch("builtins.input", return_value="y"):
+        assert gov.request_skill_write_permission("calc_fib", "skills/calc_fib.py", "def execute(): ...", is_autonomous=False) is True
+        assert "USER_APPROVED" in episodic.logs[-1].content
+        assert "calc_fib" in episodic.logs[-1].content
+
+    # Supervised denial with 'n'
+    with patch("builtins.input", return_value="n"):
+        assert gov.request_skill_write_permission("calc_fib", "skills/calc_fib.py", "def execute(): ...", is_autonomous=False) is False
+        assert "USER_DENIED" in episodic.logs[-1].content
+
+    # Supervised denial with empty enter (fail closed)
+    with patch("builtins.input", return_value=""):
+        assert gov.request_skill_write_permission("calc_fib", "skills/calc_fib.py", "def execute(): ...", is_autonomous=False) is False
+        assert "USER_DENIED" in episodic.logs[-1].content
+
+
+def test_governor_file_write():
+    episodic = MockEpisodic()
+    gov = PermissionGovernor(episodic)
+
+    # Autonomous mode auto-denies
+    assert gov.request_file_write_permission("test.txt", "content", is_autonomous=True) is False
+    assert "DENIED" in episodic.logs[-1].content
+
+    # Supervised approval
+    with patch("builtins.input", return_value="y"):
+        assert gov.request_file_write_permission("test.txt", "content", goal_description="Write test file") is True
+        assert "USER_APPROVED" in episodic.logs[-1].content
+        assert "test.txt" in episodic.logs[-1].content
+
+    # Supervised denial with 'n'
+    with patch("builtins.input", return_value="n"):
+        assert gov.request_file_write_permission("test.txt", "content", goal_description="Write test file") is False
+        assert "USER_DENIED" in episodic.logs[-1].content
+
+    # Supervised denial with empty enter (fail closed)
+    with patch("builtins.input", return_value=""):
+        assert gov.request_file_write_permission("test.txt", "content", goal_description="Write test file") is False
+        assert "USER_DENIED" in episodic.logs[-1].content
+

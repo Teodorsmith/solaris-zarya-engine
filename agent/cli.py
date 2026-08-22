@@ -49,9 +49,7 @@ def run_repl(
     from agent.config import ACTIVE_TASK_JSON, STATE_MANIFEST_JSON
 
     # Wrap the initial brain in a BrainManager so `brain switch` can hot-swap it.
-    brain_manager = BrainManager.__new__(BrainManager)
-    brain_manager._embedder = embedder
-    brain_manager._brain = brain
+    brain_manager = BrainManager(embedder=embedder, brain=brain)
     
     brain_name = brain_manager.brain.__class__.__name__
     console.print(f"[bold cyan]Agent REPL — Phase 3 (Brain: {brain_name})[/bold cyan]")
@@ -128,12 +126,12 @@ def dispatch_command(
         brain_manager = None
         brain = brain_or_manager
 
+    governor = PermissionGovernor(episodic)
     retriever = Retriever(semantic, episodic, project, brain)
     validator = SkillValidator()
-    synthesizer = SkillSynthesizer(brain, retriever, procedural, validator, project=project)
+    synthesizer = SkillSynthesizer(brain, retriever, procedural, validator, project=project, governor=governor)
     fsm = TaskFSM(ACTIVE_TASK_JSON, STATE_MANIFEST_JSON)
     planner = TaskPlanner(brain, goals)
-    governor = PermissionGovernor(episodic)
 
     if command == "help":
         console.print(HELP)
@@ -232,6 +230,7 @@ def dispatch_command(
                 procedural=procedural,
                 validator=validator,
                 project_memory=project,
+                governor=governor,
             )
             console.print(f"[bold green]{result}[/bold green]")
         except Exception as e:

@@ -173,6 +173,8 @@ class SemanticMemory:
         # bm25() is lower-is-better; min-max normalize with the sign flipped.
         lo, hi = min(scores.values()), max(scores.values())
         spread = hi - lo
+        if spread == 0:
+            return {rid: 1.0 for rid in scores}
         return {rid: (hi - s) / spread for rid, s in scores.items()}
 
     def _nearest_by_cosine(self, vec: list[float]) -> tuple[int, float] | None:
