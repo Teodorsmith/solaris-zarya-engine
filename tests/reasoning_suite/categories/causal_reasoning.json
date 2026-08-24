@@ -1,0 +1,60 @@
+{
+  "category": "causal_reasoning",
+  "problems": [
+    {
+      "id": "causal_reasoning_diff_1",
+      "difficulty": 1,
+      "prompt": "Solve a causal_reasoning problem of difficulty 1. The answer is answer_1.",
+      "expected_inference_rule": "modus_ponens",
+      "expected_conclusion_contains": [
+        "answer_1"
+      ],
+      "answer_key": "answer_1",
+      "srt_required": true
+    },
+    {
+      "id": "causal_reasoning_diff_2",
+      "difficulty": 2,
+      "prompt": "Solve a causal_reasoning problem of difficulty 2. The answer is answer_2.",
+      "expected_inference_rule": "modus_ponens",
+      "expected_conclusion_contains": [
+        "answer_2"
+      ],
+      "answer_key": "answer_2",
+      "srt_required": true
+    },
+    {
+      "id": "causal_reasoning_diff_3",
+      "difficulty": 3,
+      "prompt": "Solve a causal_reasoning problem of difficulty 3. The answer is answer_3.",
+      "expected_inference_rule": "modus_ponens",
+      "expected_conclusion_contains": [
+        "answer_3"
+      ],
+      "answer_key": "answer_3",
+      "srt_required": true
+    },
+    {
+      "id": "causal_reasoning_diff_4",
+      "difficulty": 4,
+      "prompt": "Solve a causal_reasoning problem of difficulty 4. The answer is answer_4.",
+      "expected_inference_rule": "modus_ponens",
+      "expected_conclusion_contains": [
+        "answer_4"
+      ],
+      "answer_key": "answer_4",
+      "srt_required": true
+    },
+    {
+      "id": "causal_reasoning_diff_5",
+      "difficulty": 5,
+      "prompt": "Solve a causal_reasoning problem of difficulty 5. The answer is answer_5.",
+      "expected_inference_rule": "modus_ponens",
+      "expected_conclusion_contains": [
+        "answer_5"
+      ],
+      "answer_key": "answer_5",
+      "srt_required": true
+    }
+  ]
+}

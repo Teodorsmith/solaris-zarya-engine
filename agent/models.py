@@ -23,7 +23,7 @@ class Fact(BaseModel):
     id: Optional[int] = None
     text: str
     confidence: float = 0.7
-    source_type: Literal["seed", "learned", "user_corrected"] = "seed"
+    source_type: Literal["seed", "learned", "user_corrected", "web_ingestion"] = "seed"
     topic: Optional[str] = None
     created_at: str = Field(default_factory=_now)
 
@@ -33,16 +33,27 @@ class Passage(BaseModel):
     id: Optional[int] = None
     text: str
     topic: Optional[str] = None
-    source_type: Literal["seed", "learned"] = "seed"
+    source_type: Literal["seed", "learned", "web_ingestion"] = "seed"
     created_at: str = Field(default_factory=_now)
 
 
 class EpisodicLog(BaseModel):
     id: Optional[int] = None
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    kind: Literal["query", "answer", "refusal", "system"] = "query"
+    kind: Literal[
+        "query", "answer", "refusal", "system",
+        # Phase 4A events
+        "stale_fact_alert", "self_model_update",
+        "heartbeat_cycle", "security_violation",
+    ] = "system"
     content: str
     outcome: Literal["success", "failure", "neutral"] = "neutral"
+    prompt_hash: Optional[str] = None
+    strategy_label: Optional[str] = None
+    novelty_score: Optional[float] = None
+    reasoning_domain: Optional[str] = None
+    outcome_class: Optional[Literal["success", "failure", "divergent"]] = None
+    hypothesis_count: int = 1
     created_at: str = Field(default_factory=_now)
 
 
@@ -127,3 +138,55 @@ class TaskState(BaseModel):
     action_hash: Optional[str] = None
     pending_action_hash: Optional[str] = None
     executed_actions: list[str] = Field(default_factory=list)
+    prompt_hash: Optional[str] = None
+    strategy_label: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Phase 4B: Reasoning Substrate (Mitigations #61, #63, #65)
+# ---------------------------------------------------------------------------
+
+class SRTTrace(BaseModel):
+    """Structured Reasoning Trace -- output format for reasoning benchmarks.
+
+    A verified SRT means the conclusion *follows from the stated premises*
+    under the named inference rule. It does NOT mean the premises are
+    true in the real world. Explicitly: 'valid inference, not truth verification.'
+    """
+    conclusion: str
+    premises: list[str]
+    inference_rule: Literal[
+        "transitive_implication", "modus_ponens", "modus_tollens",
+        "disjunctive_syllogism", "de_morgan", "conjunction",
+    ]
+    rejected_hypotheses: list[dict[str, str]] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ReasoningEpisode(BaseModel):
+    """Full SHyAOEDRGL tuple for one reasoning event (Mitigation #61).
+
+    Fields map to: State, Hypothesis, Action, Observation,
+    Error, Diagnosis, Revised hypothesis, Generalized Lesson.
+    """
+    id: Optional[int] = None
+    trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: Optional[str] = None
+    # SHyAOEDRGL fields
+    state: str
+    hypothesis: str
+    action: str
+    observation: str
+    error: Optional[str] = None
+    diagnosis: Optional[str] = None
+    revised_hypo: Optional[str] = None
+    generalized_rule: Optional[str] = None
+    # Metadata
+    strategy_label: Optional[str] = None
+    reasoning_domain: Optional[str] = None
+    outcome_class: Literal["success", "failure", "divergent"] = "success"
+    hypothesis_count: int = Field(default=1, ge=1)
+    verified: bool = False
+    srt_json: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    created_at: str = Field(default_factory=_now)

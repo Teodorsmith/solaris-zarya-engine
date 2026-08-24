@@ -13,6 +13,10 @@ import re
 from abc import ABC, abstractmethod
 
 
+class QuotaExceededError(Exception):
+    """Raised when a provider hits an unrecoverable quota or rate limit (e.g. 429)."""
+    pass
+
 class BaseBrain(ABC):
     @abstractmethod
     def generate(self, prompt: str) -> str:

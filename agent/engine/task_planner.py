@@ -44,9 +44,11 @@ _FILE_ACTION_HINTS: tuple[str, ...] = (
 )
 
 class TaskPlanner:
-    def __init__(self, brain: BaseBrain, goal_memory: GoalMemory):
+    def __init__(self, brain: BaseBrain, goal_memory: GoalMemory, episodic_memory=None, embedder=None):
         self.brain = brain
         self.goal_memory = goal_memory
+        self.episodic_memory = episodic_memory
+        self.embedder = embedder
 
     def _parse_plan_json(self, raw_text: str) -> list[dict]:
         import json
@@ -123,16 +125,38 @@ Output ONLY a JSON list of goals matching this schema:
 ]
 Use internal string IDs (like "goal_1") to set up dependencies.
 """
+        novelty_score = 1.0
+        if self.episodic_memory and self.embedder:
+            try:
+                rows = self.episodic_memory.conn.execute("SELECT content FROM episodic_log WHERE kind='query'").fetchall()
+                if rows:
+                    curr_emb = self.embedder.embed(prompt)
+                    past_embs = self.embedder.embed_batch([r["content"] for r in rows])
+                    max_sim = max(self.embedder.similarity(curr_emb, e) for e in past_embs)
+                    novelty_score = max(0.0, 1.0 - max_sim)
+            except Exception as e:
+                logger.warning(f"Failed to compute novelty score: {e}")
+
+        logger.info(f"Task novelty score: {novelty_score:.2f}")
+
         parsed = None
         response = ""
         
         for attempt in range(2):
             if attempt == 0:
                 p = system_prompt
+                if novelty_score > 0.8:
+                    p += "\n\nNOVELTY ALERT (score > 0.8): First generate 3-5 distinct competing hypotheses for how to decompose this task. Evaluate their edge cases, then output ONLY the final JSON array for the best hypothesis."
             else:
                 p = f"Your previous plan output was invalid or truncated JSON. Output ONLY a valid, complete JSON array with max 3 concise steps for goal: {prompt}"
                 
-            response = self.brain.generate(p)
+            if attempt == 0 and novelty_score > 0.8 and self.embedder:
+                from agent.engine.critic import CriticSession
+                with CriticSession(self.brain, self.brain, self.embedder) as session:
+                    res = session.solve(p)
+                    response = res.answer
+            else:
+                response = self.brain.generate(p)
             
             try:
                 parsed = self._parse_plan_json(response)

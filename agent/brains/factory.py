@@ -135,10 +135,32 @@ class BrainManager:
     ) -> None:
         self._embedder = embedder
         self._brain: BaseBrain = brain if brain is not None else get_brain(embedder)
+        self.failover_chain = ["gemini", "groq", "openai", "local", "mock"]
 
     @property
     def brain(self) -> BaseBrain:
         return self._brain
+
+    def switch_to_next_available(self) -> BaseBrain:
+        """Switch to the next provider in the failover chain."""
+        current_name = ""
+        for name, cls in {"GeminiBrain": "gemini", "GroqBrain": "groq", "OpenAIBrain": "openai", "OpenAILikeBrain": "local", "MockBrain": "mock"}.items():
+            if name in self._brain.__class__.__name__:
+                current_name = cls
+                break
+                
+        try:
+            current_idx = self.failover_chain.index(current_name)
+            next_idx = current_idx + 1
+        except ValueError:
+            next_idx = 0
+            
+        if next_idx >= len(self.failover_chain):
+            raise RuntimeError("All brain providers in the failover chain have been exhausted.")
+            
+        next_provider = self.failover_chain[next_idx]
+        logger.info(f"[BRAIN FAILOVER] Swapping from '{current_name}' to '{next_provider}'...")
+        return self.switch_brain(next_provider)
 
     def switch_brain(
         self,

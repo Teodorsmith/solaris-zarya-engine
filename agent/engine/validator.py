@@ -18,25 +18,12 @@ from agent.models import SkillResultSchema
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_MODULES = {
-    "json",
-    "re",
-    "math",
-    "typing",
-    "dataclasses",
-    "datetime",
-    "collections",
-    "pathlib",
-    "textwrap",
-    "enum",
-    "uuid",
-    "hashlib",
-    "base64",
-    "copy",
-    "functools",
-    "itertools",
-    "unittest",
-}
+TIER_1_MODULES = frozenset({
+    'json', 're', 'math', 'typing', 'dataclasses', 'datetime',
+    'collections', 'pathlib', 'shlex', 'argparse', 'textwrap',
+    'enum', 'uuid', 'hashlib', 'base64', 'copy', 'functools', 'itertools',
+    'unittest'
+})
 
 class SecurityError(Exception):
     pass
@@ -61,14 +48,14 @@ class ASTSecurityScanner(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import):
         for alias in node.names:
             root_mod = self._get_root_module(alias.name)
-            if root_mod not in ALLOWED_MODULES and root_mod != self.skill_name:
+            if root_mod not in TIER_1_MODULES and root_mod != self.skill_name:
                 self.errors.append(f"Importing module '{alias.name}' is forbidden.")
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
         if node.module is not None:
             root_mod = self._get_root_module(node.module)
-            if root_mod not in ALLOWED_MODULES and root_mod != self.skill_name:
+            if root_mod not in TIER_1_MODULES and root_mod != self.skill_name:
                 self.errors.append(f"Importing from '{node.module}' is forbidden.")
         self.generic_visit(node)
 
@@ -246,3 +233,37 @@ except Exception as e:
             except subprocess.TimeoutExpired:
                 self._kill_tree(hproc.pid if 'hproc' in locals() else None)
                 raise SecurityError(f"Harness execution timed out after {self.timeout_seconds} seconds.")
+
+    def run_counterfactual_test(self, code: str, edge_case_input: str) -> str:
+        """Run a counterfactual variant in a sandbox (gVisor runsc if available)."""
+        import shutil
+        has_gvisor = shutil.which("runsc") is not None
+        
+        if not has_gvisor:
+            logger.info("[SANDBOX] gVisor not found on host — executed in standard subprocess sandbox.")
+            
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_path = os.path.join(tmpdir, "counterfactual.py")
+            with open(test_path, "w", encoding="utf-8") as f:
+                f.write(code)
+                f.write("\n\n")
+                f.write(f"print({edge_case_input})")
+                
+            cmd = [sys.executable, "counterfactual.py"]
+            if has_gvisor:
+                cmd = ["runsc", "exec", sys.executable, "counterfactual.py"]
+                
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds
+                )
+                if proc.returncode != 0:
+                    return f"FAILED: {proc.stderr}"
+                return f"SUCCESS: {proc.stdout.strip()}"
+            except subprocess.TimeoutExpired:
+                self._kill_tree(proc.pid if 'proc' in locals() else None)
+                return "FAILED: Execution timed out."

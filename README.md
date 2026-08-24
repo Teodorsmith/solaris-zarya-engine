@@ -50,7 +50,7 @@ Solaris Zarya Engine is an autonomous developer agent built from first principle
 
 ---
 
-## Core Capabilities (Phases 0–3 Implemented)
+## Core Capabilities (Phases 0–4 Implemented)
 
 ### 1. 4-Tier Persistent SQLite Memory (WAL Mode)
 - **Tier 1 — Episodic Memory (`data/episodic.db`)**: 90-day retention log recording questions, answers, refusals, task executions, and governor approvals/denials with audit traces.
@@ -85,6 +85,11 @@ Solaris Zarya Engine is an autonomous developer agent built from first principle
   - **Tier 2**: Filesystem writes and capability extensions (requires explicit `[Y/n]` approval).
 - Enforces depth caps (depth $\le 2$ autonomous; depth $3\text{--}4$ requiring supervisor approval; depth $> 4$ hard-denied).
 - Logs all decisions (`USER_APPROVED`, `USER_DENIED`, `AUTO_APPROVED`, `DENIED`) to `episodic.db`.
+
+### 6. Autonomous Maintenance & Metacognitive Reasoning
+- **Heartbeat Daemon**: Runs autonomous background loops to verify memory, aggregate telemetry, and clean up stale data (max 3 actions/hour).
+- **Self-Model & Reasoning Memory**: Tracks the agent's performance profiles, updates difficulty ceilings via ZPD binary search, and stores `reasoning.db` traces.
+- **Failover & Resiliency**: Built-in multi-tier brain failover strategy (e.g., Gemini -> Groq -> OpenAI -> Local -> Mock) and robust web ingestion pipeline that checkpoints curriculum research and exports human-readable markdown (`data/knowledge/`).
 
 ---
 

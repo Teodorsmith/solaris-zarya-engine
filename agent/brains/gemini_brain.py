@@ -13,7 +13,7 @@ import time
 import httpx
 import logging
 from typing import Optional
-from agent.brains.base import BaseBrain
+from agent.brains.base import BaseBrain, QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,8 @@ class GeminiBrain(BaseBrain):
                         return parts[0].get("text", "").strip()
 
                     elif response.status_code in (429, 503):
+                        if attempt == max_retries - 1:
+                            raise QuotaExceededError(f"Gemini API quota exhausted after {max_retries} retries.")
                         logger.warning(f"Gemini API returned {response.status_code}. Retrying in {backoff:.2f}s...")
                         time.sleep(backoff)
                         backoff = min(backoff * 2.0, 30.0)

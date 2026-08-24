@@ -1,0 +1,29 @@
+{
+  "identity": "Autonomous-Agent-v1",
+  "boot_count": 10,
+  "last_reflection_at": null,
+  "current_focal_areas": [],
+  "empirical_competence_matrix": {},
+  "known_strengths": [],
+  "known_knowledge_gaps": [],
+  "reasoning_profile": {
+    "global_scores": {},
+    "domain_deltas": {},
+    "strategy_index": {
+      "novel_problem": [
+        "counterfactual",
+        "hypothesis_competition"
+      ],
+      "structured_problem": [
+        "decomposition",
+        "causal"
+      ],
+      "debugging": [
+        "hypothesis_competition",
+        "discriminating_test"
+      ]
+    },
+    "zpd_ceilings": {}
+  },
+  "user_preferences": {}
+}

@@ -48,8 +48,8 @@ class TaskFSM:
             self.clear_task()
             return None
 
-    def start_task(self, goal_id: str) -> TaskState:
-        state = TaskState(goal_id=goal_id, state="PENDING")
+    def start_task(self, goal_id: str, prompt_hash: str | None = None, strategy_label: str | None = None) -> TaskState:
+        state = TaskState(goal_id=goal_id, state="PENDING", prompt_hash=prompt_hash, strategy_label=strategy_label)
         self._write_state(state)
         return state
 

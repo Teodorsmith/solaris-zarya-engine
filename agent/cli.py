@@ -35,6 +35,8 @@ Commands:
   project index <dir>  Index workspace directory into Project Memory.
   project list         List indexed project files.
   stats                Show memory counts.
+  self-model           Show empirical competence matrix and boot count.
+  benchmark reasoning  Run ZPD reasoning calibration.
   brain switch <provider> [model]  Switch active brain (gemini, groq, openai, local, mock).
   brain list           Show registered providers and current brain.
   help                 Show this message.
@@ -43,13 +45,15 @@ Commands:
 
 
 def run_repl(
-    semantic: SemanticMemory, 
-    episodic: EpisodicMemory, 
+    semantic: SemanticMemory,
+    episodic: EpisodicMemory,
     procedural: ProceduralMemory,
     project: ProjectMemory,
     goals: GoalMemory,
     brain: BaseBrain,
-    embedder: EmbeddingEngine
+    embedder: EmbeddingEngine,
+    self_model=None,          # Phase 4A: SelfModel | None
+    pause_event=None,         # Phase 4A: threading.Event | None
 ) -> None:
     from agent.engine.state_machine import TaskFSM
     from agent.brains.factory import BrainManager
@@ -59,6 +63,7 @@ def run_repl(
     brain_manager = BrainManager(embedder=embedder, brain=brain)
     
     brain_name = brain_manager.brain.__class__.__name__
+    _pause = pause_event  # local alias — set before input, clear after
     console.print(f"[bold cyan]Agent REPL — Phase 3 (Brain: {brain_name})[/bold cyan]")
     console.print(HELP)
 
@@ -87,7 +92,11 @@ def run_repl(
 
     while True:
         try:
+            if _pause is not None:
+                _pause.set()       # signal heartbeat: user is active
             raw = console.input("[bold green]>[/bold green] ").strip()
+            if _pause is not None:
+                _pause.clear()     # user finished typing; daemon may resume
         except (EOFError, KeyboardInterrupt):
             console.print("\nbye.")
             break
@@ -104,7 +113,8 @@ def run_repl(
             break
         
         try:
-            dispatch_command(command, rest, semantic, episodic, procedural, project, goals, brain_manager)
+            dispatch_command(command, rest, semantic, episodic, procedural, project, goals,
+                             brain_manager, self_model=self_model)
         except Exception as e:
             console.print(f"[bold red]System Error:[/bold red] {e}")
 
@@ -112,12 +122,13 @@ def run_repl(
 def dispatch_command(
     command: str,
     rest: str,
-    semantic: SemanticMemory, 
-    episodic: EpisodicMemory, 
+    semantic: SemanticMemory,
+    episodic: EpisodicMemory,
     procedural: ProceduralMemory,
     project: ProjectMemory,
     goals: GoalMemory,
-    brain_or_manager,  # BaseBrain (legacy) or BrainManager
+    brain_or_manager,           # BaseBrain (legacy) or BrainManager
+    self_model=None,            # Phase 4A: SelfModel | None
 ) -> None:
     from agent.engine.state_machine import TaskFSM
     from agent.engine.task_planner import TaskPlanner
@@ -148,11 +159,180 @@ def dispatch_command(
             return
         console.print(retriever.answer(rest))
     elif command == "learn":
-        inserted = seed_knowledge(semantic, force=False)
-        if inserted:
-            console.print(f"Knowledge base seeded ({inserted} new facts).")
+        if not rest:
+            console.print("[yellow]usage: learn <topic> | learn resume[/yellow]")
+            return
+            
+        from agent.engine.planner import CurriculumPlanner
+        from agent.engine.ingest import search_sources, extract_clean_text, IngestionAbortError
+        from agent.engine.synthesizer import KnowledgeSynthesizer
+        from agent.brains.base import QuotaExceededError
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
+        from agent.engine.exporter import init_markdown_note, append_unit_to_markdown
+        import time
+        
+        planner_cur = CurriculumPlanner(brain)
+        synthesizer_know = KnowledgeSynthesizer(brain, semantic)
+        
+        topic = rest
+        units = []
+        completed_units = []
+        
+        if topic == "resume":
+            ckpt = planner_cur.load_checkpoint()
+            if not ckpt:
+                console.print("[yellow]No active curriculum found to resume.[/yellow]")
+                return
+            topic = ckpt["topic"]
+            units = ckpt["units_data"]
+            completed_units = ckpt.get("completed_units", [])
+            console.print(f"[green]Resuming curriculum for '{topic}' (completed {len(completed_units)}/{len(units)} units).[/green]")
         else:
-            console.print("Knowledge base already seeded.")
+            if planner_cur.has_checkpoint(topic):
+                resp = console.input(f"Found active curriculum for '{topic}'. Resume? [Y/n]: ").strip().lower()
+                if resp in ('y', 'yes', ''):
+                    ckpt = planner_cur.load_checkpoint()
+                    units = ckpt["units_data"]
+                    completed_units = ckpt.get("completed_units", [])
+                    console.print(f"[green]Resuming...[/green]")
+                else:
+                    console.print("Starting fresh...")
+                    planner_cur.clear_checkpoint()
+            
+            if not units:
+                console.print(f"Initializing Curriculum Planner for '{topic}'...")
+                try:
+                    units = planner_cur.plan_curriculum(topic)
+                    console.print(f"[green]Decomposed topic into {len(units)} study units.[/green]")
+                    for i, u in enumerate(units, 1):
+                        console.print(f"  {i}. {u}")
+                    planner_cur.save_checkpoint(topic, units, completed_units)
+                except Exception as e:
+                    console.print(f"[red]Failed to plan curriculum: {e}[/red]")
+                    return
+        
+        total_facts, total_passages = 0, 0
+        quota_hit = False
+        
+        with Progress(
+            SpinnerColumn(style="green"),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console
+        ) as progress:
+            overall_task = progress.add_task("Learning curriculum...", total=len(units))
+            
+            brain_name = getattr(brain, "model", brain.__class__.__name__)
+            init_markdown_note(topic, len(units), brain_name)
+            
+            if completed_units:
+                progress.advance(overall_task, len(completed_units))
+                
+            for i, unit in enumerate(units, 1):
+                if i in completed_units:
+                    continue
+                    
+                progress.update(overall_task, description=f"[cyan]Unit {i}/{len(units)}:[/] {unit[:45]}...")
+                
+                unit_success = True
+                unit_facts = 0
+                f_added_this_unit, p_added_this_unit = 0, 0
+                
+                unit_exported_facts = []
+                unit_exported_passages = []
+                unit_sources = []
+                
+                urls = search_sources(unit, max_results=2)
+                if not urls:
+                    console.print(f"  [yellow][WARN] Unit {i}: Search returned 0 links[/yellow]")
+                    unit_success = False
+                
+                for url in urls:
+                    unit_sources.append(url)
+                    try:
+                        raw_text = extract_clean_text(url)
+                        # Retry loop for failover
+                        while True:
+                            try:
+                                added_facts, added_passages = synthesizer_know.distill_to_semantic_db(raw_text, topic)
+                                
+                                f_count = len(added_facts)
+                                p_count = len(added_passages)
+                                
+                                total_facts += f_count
+                                total_passages += p_count
+                                f_added_this_unit += f_count
+                                p_added_this_unit += p_count
+                                unit_facts += f_count + p_count
+                                
+                                unit_exported_facts.extend([{"statement": f.text, "confidence": f.confidence} for f in added_facts])
+                                unit_exported_passages.extend([p.text for p in added_passages])
+                                break
+                            except QuotaExceededError as qe:
+                                if brain_manager:
+                                    try:
+                                        brain_manager.switch_to_next_available()
+                                        synthesizer_know.brain = brain_manager.brain
+                                        planner_cur.brain = brain_manager.brain
+                                        continue
+                                    except RuntimeError:
+                                        unit_success = False
+                                        quota_hit = True
+                                        break
+                                else:
+                                    unit_success = False
+                                    quota_hit = True
+                                    break
+                    except IngestionAbortError:
+                        pass
+                    except Exception as e:
+                        console.print(f"  [yellow]Warning: Ingestion failed for {url} - {e}[/yellow]")
+                        
+                    if quota_hit:
+                        break
+                
+                if quota_hit:
+                    break
+                    
+                if unit_success and unit_facts == 0:
+                    console.print(f"  [yellow][WARN] Unit {i}: Distillation parsed 0 facts (Skipping checkpoint).[/yellow]")
+                    unit_success = False
+                    
+                if unit_success:
+                    completed_units.append(i)
+                    planner_cur.save_checkpoint(topic, units, completed_units)
+                    
+                    console.print(
+                        f"  [green]✓[/] [bold]Unit {i}/{len(units)}:[/] {unit[:60]}... "
+                        f"— [dim]Added {f_added_this_unit} facts, {p_added_this_unit} passages[/]"
+                    )
+                    
+                    append_unit_to_markdown(
+                        topic=topic,
+                        unit_index=i,
+                        total_units=len(units),
+                        unit_title=unit,
+                        passages=unit_exported_passages,
+                        facts=unit_exported_facts,
+                        sources=unit_sources
+                    )
+                
+                progress.advance(overall_task, 1)
+                
+                # Pacing Delay
+                time.sleep(3.0)
+                
+        if quota_hit:
+            console.print("[bold red]All brain quotas exhausted. Saved progress to active_curriculum.json.[/bold red]")
+            if total_facts == 0:
+                console.print("[bold yellow][WARNING] Ingestion failed: 0 facts extracted due to API quota errors. Try switching brains or wait for quota reset.[/bold yellow]")
+        else:
+            from agent.engine.exporter import get_topic_slug
+            console.print(f"[bold green]Ingestion complete![/bold green] Added {total_facts} facts and {total_passages} passages to Semantic Memory.")
+            console.print(f"[bold green]Saved human-readable research notes to:[/] [cyan]data/knowledge/{get_topic_slug(topic)}.md[/]")
+            planner_cur.clear_checkpoint()
     elif command == "skill":
         if not rest:
             console.print("[yellow]usage: skill <topic>[/yellow]")
@@ -183,7 +363,7 @@ def dispatch_command(
         except Exception as e:
             console.print(f"[red]Execution failed: {e}[/red]")
     elif command == "facts":
-        _print_facts(semantic)
+        _print_facts(semantic, rest)
     elif command == "project":
         _handle_project_cmd(rest, project, brain)
     elif command == "stats":
@@ -243,10 +423,14 @@ def dispatch_command(
         except Exception as e:
             console.print(f"[bold red]Task execution failed: {e}[/bold red]")
         
+    elif command == "self-model":
+        _print_self_model(self_model)
+    elif command == "benchmark" and rest.startswith("reasoning"):
+        _handle_benchmark_reasoning(rest, brain_manager, self_model)
     elif command == "brain":
         _handle_brain_cmd(rest, brain_manager)
     else:
-        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")  
+        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
 
 
 def _handle_project_cmd(rest: str, project: ProjectMemory, brain: BaseBrain) -> None:
@@ -285,14 +469,36 @@ def _handle_project_cmd(rest: str, project: ProjectMemory, brain: BaseBrain) -> 
         console.print("[yellow]usage: project index <dir> | project list[/yellow]")
 
 
-def _print_facts(semantic: SemanticMemory) -> None:
-    table = Table(title="Semantic memory")
+def _print_facts(semantic: SemanticMemory, query: str = "") -> None:
+    query = query.strip()
+    if query:
+        query_term = f"%{query.lower()}%"
+        rows = semantic.conn.execute(
+            """
+            SELECT id, topic, text, source_type, confidence 
+            FROM facts 
+            WHERE LOWER(topic) LIKE ? OR LOWER(text) LIKE ?
+            ORDER BY id ASC
+            """,
+            (query_term, query_term)
+        ).fetchall()
+        
+        if not rows:
+            console.print(f"[yellow]No facts found matching '{query}'.[/yellow]")
+            return
+            
+        from agent.models import Fact
+        facts = [Fact(id=r["id"], topic=r["topic"], text=r["text"], source_type=r["source_type"], confidence=r["confidence"]) for r in rows]
+    else:
+        facts = semantic.list_all()
+
+    table = Table(title=f"Semantic memory{' (Search: ' + query + ')' if query else ''}")
     table.add_column("id", justify="right")
     table.add_column("topic")
     table.add_column("text")
     table.add_column("source")
     table.add_column("confidence", justify="right")
-    for fact in semantic.list_all():
+    for fact in facts:
         table.add_row(str(fact.id), fact.topic or "-", fact.text, fact.source_type, f"{fact.confidence:.2f}")
     console.print(table)
 
@@ -315,6 +521,59 @@ def _print_stats(semantic: SemanticMemory, episodic: EpisodicMemory, procedural:
     table.add_row("skills", str(procedural.count()))
     table.add_row("project files", str(project.count()))
     console.print(table)
+
+
+def _print_self_model(self_model) -> None:
+    if self_model is None:
+        console.print("[yellow]Self-model not available (agent started without Phase 4A).[/yellow]")
+        return
+    data = self_model.as_dict()
+    # Header info
+    console.print(f"[bold cyan]Self-Model[/bold cyan]  identity={data.get('identity')}  "
+                  f"boot_count={data.get('boot_count', 0)}  "
+                  f"last_reflection={data.get('last_reflection_at') or 'never'}")
+
+    # Competence matrix
+    matrix = data.get("empirical_competence_matrix", {})
+    if matrix:
+        table = Table(title="Empirical Competence Matrix")
+        table.add_column("topic")
+        table.add_column("verified", justify="right")
+        table.add_column("failed", justify="right")
+        table.add_column("pass_ratio", justify="right")
+        table.add_column("confidence", justify="right")
+        for topic, entry in sorted(matrix.items()):
+            table.add_row(
+                topic,
+                str(entry.get("skills_verified", 0)),
+                str(entry.get("skills_failed", 0)),
+                f"{entry.get('pass_ratio', 0.0):.0%}",
+                f"{entry.get('confidence', 0.0):.2f}",
+            )
+        console.print(table)
+    else:
+        console.print("[dim]No competence data yet.[/dim]")
+
+    # Reasoning profile global scores
+    profile = data.get("reasoning_profile", {})
+    global_scores = profile.get("global_scores", {})
+    if global_scores:
+        t2 = Table(title="Reasoning Global Scores")
+        t2.add_column("strategy")
+        t2.add_column("score", justify="right")
+        for k, v in sorted(global_scores.items()):
+            t2.add_row(k, f"{v:.3f}")
+        console.print(t2)
+
+    # Known gaps
+    gaps = data.get("known_knowledge_gaps", [])
+    if gaps:
+        console.print(f"[yellow]Known gaps:[/yellow] {', '.join(gaps)}")
+
+
+def _handle_benchmark_reasoning(rest: str, brain_manager, self_model) -> None:
+    from agent.engine.benchmark import run_reasoning_benchmark
+    run_reasoning_benchmark(rest, brain_manager.brain, self_model)
 
 
 def _handle_brain_cmd(rest: str, brain_manager) -> None:

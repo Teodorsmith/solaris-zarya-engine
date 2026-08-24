@@ -21,6 +21,31 @@ GOALS_DB = DATA_DIR / "goals.db"
 ACTIVE_TASK_JSON = DATA_DIR / "active_task.json"
 STATE_MANIFEST_JSON = DATA_DIR / "state_manifest.json"
 
+# Phase 4A: Self-Model
+SELF_MODEL_JSON     = DATA_DIR / "self_model.json"
+SELF_MODEL_BAK_JSON = DATA_DIR / "self_model.bak.json"
+
+# Phase 4A: Heartbeat Daemon (Mitigations #41, #46)
+HEARTBEAT_INTERVAL_SECS  = 900   # 15-min idle check; no-op if nothing actionable
+HEARTBEAT_MAX_PER_HOUR   = 3     # hard ceiling on autonomous actions per rolling hour
+HEARTBEAT_DAILY_CALL_CAP = 50    # reserved for future LLM-calling background tasks
+STALE_FACT_DAYS           = 180   # flag facts older than this for review
+
+# Phase 4B: Reasoning Memory (Mitigation #61)
+REASONING_DB = DATA_DIR / "reasoning.db"
+REASONING_SUITE_DIR = Path(__file__).resolve().parent.parent / "tests" / "reasoning_suite"
+
+# Phase 4B: Lateral Critic (Mitigation #63)
+CRITIC_SIMILARITY_THRESHOLD = 0.75   # cosine; below = divergent
+CRITIC_BRAIN_B_TEMPERATURE  = 0.85   # fallback temperature for single-provider mode
+
+# Phase 4B: ZPD Benchmark (Mitigation #66)
+ZPD_CATEGORIES = ["decomposition", "hypothesis_testing", "causal_reasoning",
+                   "counterexample_gen", "planning", "adversarial"]
+ZPD_MAX_ROUNDS    = 5
+ZPD_DIFFICULTY_MIN = 1
+ZPD_DIFFICULTY_MAX = 5
+
 SEED_VERSION = 1  # bump when seed_data/facts.json changes shape, to force a reseed
 
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model name (384-dim)

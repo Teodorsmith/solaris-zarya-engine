@@ -45,32 +45,23 @@ class SkillSynthesizer:
 
     def _generate_skill_prompt(self, topic: str, context: str, error_feedback: Optional[str] = None) -> str:
         prompt = f"""
-You are an expert Python developer writing a safe, pure-logic skill.
+You are an expert Python tool developer.
+Write a standalone, self-contained Python skill.
 Topic: {topic}
 Context:
 {context}
 
-You must write two Python scripts:
-1. The skill code. It must contain a function called `execute` that returns a JSON-serializable value.
-2. The unit test suite using `unittest`.
-
-You are strictly restricted to the following modules:
-json, re, math, typing, dataclasses, datetime, collections, pathlib, textwrap, enum, uuid, hashlib, base64, copy, functools, itertools
-
-DO NOT USE os.system, subprocess, eval, exec, __builtins__, or any reflection/dunder methods.
+CRITICAL SECURITY & AST RULES:
+1. Built-in `open()` is STRICTLY FORBIDDEN.
+   - For reading files, ALWAYS use: `pathlib.Path(file_path).read_bytes()` or `pathlib.Path(file_path).read_text(encoding="utf-8")`.
+   - For writing files, ALWAYS use: `pathlib.Path(file_path).write_bytes(...)` or `pathlib.Path(file_path).write_text(...)`.
+2. Allowed imports: `pathlib`, `json`, `re`, `math`, `hashlib`, `typing`, `dataclasses`, `datetime`.
+3. Do NOT use dunder attributes (e.g., `__class__`, `__subclasses__`).
+4. Output valid JSON containing 'skill_name', 'description', 'code', and 'test_code'.
 """
         if error_feedback:
             prompt += f"\nYour previous attempt failed with this error:\n{error_feedback}\nPlease fix the error.\n"
-        
-        prompt += """
-Output ONLY a valid JSON object matching exactly this schema, with no markdown formatting outside of it:
-{
-  "skill_name": "name_of_skill_using_underscores",
-  "description": "Short description",
-  "code": "def execute():\\n    ...",
-  "test_code": "import unittest\\n..."
-}
-"""
+            
         return prompt
 
     def learn_skill(self, topic: str) -> Skill:
@@ -146,7 +137,90 @@ Output ONLY a valid JSON object matching exactly this schema, with no markdown f
 
             except SecurityError as e:
                 error_feedback = str(e)
+                if "open" in error_feedback:
+                    error_feedback += " (HINT: Replace open(...) with pathlib.Path(path).read_bytes() or .read_text())"
                 logger.warning(f"Attempt {attempt} failed validation: {error_feedback}")
                 continue
 
         raise SynthesizerError(f"Failed to synthesize skill '{topic}' after {self.max_retries} retries. Last error: {error_feedback}")
+
+class KnowledgeSynthesizer:
+    def __init__(self, brain: BaseBrain, semantic: 'SemanticMemory'):
+        self.brain = brain
+        self.semantic = semantic
+
+    def distill_to_semantic_db(self, raw_text: str, topic: str) -> tuple[list['Fact'], list['Passage']]:
+        """
+        Extracts atomic concept facts and 200-500 word context_passages from raw text.
+        Persists them to semantic.db. Deduplication is handled by semantic.add_fact().
+        Returns a tuple of (added_facts, added_passages).
+        """
+        from agent.models import Fact, Passage
+        import datetime
+        from datetime import timezone
+
+        # Avoid blowing up context window with raw HTML dumps, restrict to ~20K chars max.
+        text_chunk = raw_text[:20000]
+
+        # 1. Extract Facts
+        prompt_facts = f"""
+You are an expert knowledge extractor.
+Extract concise, falsifiable, atomic facts from the following text about "{topic}".
+Focus on entities, dates, causality, statistics, and definitions.
+Output ONLY a JSON array of strings.
+
+CRITICAL: Respond ONLY with a raw JSON array. Do NOT include markdown code blocks, do NOT write introductory or concluding text.
+
+Text:
+{text_chunk}
+"""
+        response_facts = self.brain.generate(prompt_facts)
+        facts = self.brain.extract_json(response_facts)
+        
+        added_facts = []
+        if isinstance(facts, list):
+            for f_text in facts:
+                if isinstance(f_text, str) and len(f_text) > 10:
+                    fact = Fact(
+                        id=0,
+                        text=f_text,
+                        confidence=0.8,
+                        source_type="web_ingestion",
+                        topic=topic,
+                        created_at=datetime.datetime.now(timezone.utc).isoformat()
+                    )
+                    created, returned_fact = self.semantic.add_fact(fact)
+                    if created:
+                        added_facts.append(returned_fact)
+
+        # 2. Extract Passages
+        prompt_passages = f"""
+You are an expert historian/scientist.
+Extract 1 to 3 critical narrative passages (200-500 words each) from the following text about "{topic}".
+Preserve complex causal sequences, methodology, or nuance that would be lost in atomic facts.
+Output ONLY a JSON array of strings.
+
+CRITICAL: Respond ONLY with a raw JSON array. Do NOT include markdown code blocks, do NOT write introductory or concluding text.
+
+Text:
+{text_chunk}
+"""
+        response_passages = self.brain.generate(prompt_passages)
+        passages = self.brain.extract_json(response_passages)
+        
+        added_passages = []
+        if isinstance(passages, list):
+            for p_text in passages:
+                # We enforce >150 chars as proxy for a reasonable paragraph length
+                if isinstance(p_text, str) and len(p_text) >= 150:
+                    passage = Passage(
+                        id=0,
+                        text=p_text,
+                        topic=topic,
+                        source_type="web_ingestion",
+                        created_at=datetime.datetime.now(timezone.utc).isoformat()
+                    )
+                    self.semantic.add_passage(passage)
+                    added_passages.append(passage)
+                    
+        return added_facts, added_passages
