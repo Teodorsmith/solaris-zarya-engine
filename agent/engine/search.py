@@ -12,7 +12,13 @@
 import logging
 from urllib.parse import urlparse
 
-from ddgs import DDGS
+try:
+    from duckduckgo_search import DDGS
+except ImportError:
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        DDGS = None
 
 logger = logging.getLogger(__name__)
 
