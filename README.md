@@ -176,12 +176,14 @@ python threshold_sweep.py
 
 ---
 
-## Licensing & Commercial Inquiries
+## License & Dual-Licensing
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under a **Dual-Licensing Model**.
 
-### Commercial Licensing & Custom Engagements
-For enterprises seeking proprietary, non-GPL integration exemptions, custom skill development, or dedicated support:
-* **Contact:** [teosmith.studios@gmail.com](mailto:teosmith.studios@gmail.com)
+1. **Open Source (AGPLv3)**: By default, the project is open-source and free for personal, academic, and community use under the [GNU Affero General Public License v3 (AGPLv3)](LICENSE).
+   *Note: Under AGPLv3, if you modify this software and provide it over a network, you must offer the source code of your modifications to users.*
+   
+2. **Commercial License / AGPL Exemption**: A paid commercial license is available for enterprises that do not want to open-source their proprietary code under AGPLv3 Section 13 requirements. Companies that wish to use this software in closed-source SaaS, proprietary internal tools, or embedded products without complying with AGPLv3 obligations must obtain a separate Commercial License.
 
-
+### Contact
+To inquire about commercial licensing or AGPL exceptions, please contact: [teosmith.studios@gmail.com](mailto:teosmith.studios@gmail.com)

@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Central configuration: paths, constants, thresholds."""
 
@@ -101,11 +109,76 @@ IGNORED_EXTS = {
 CONFIDENT_THRESHOLD = 0.80
 TENTATIVE_THRESHOLD = 0.65
 
-# Hybrid retrieval blend: cosine (semantic) + FTS5 BM25 (keyword)
-COSINE_WEIGHT = 0.7
-KEYWORD_WEIGHT = 0.3
+# Hybrid retrieval blend: RRF Config
+RRF_DENSE_WEIGHT = 0.6
+RRF_FTS5_WEIGHT = 0.4
 
 EPISODIC_RETENTION_DAYS = 90
+
+# Phase 6: Evolutionary Loop & DPO Pipeline (Mitigations #68, #69, #70)
+MOA_ROUTING_THRESHOLD = 0.5
+DPO_MIN_CORPUS_SIZE = 50
+DPO_NOVELTY_THRESHOLD = 0.7
+DPO_DATASET_DIR = DATA_DIR / "datasets"
+
+
+# Phase 5: Domain Validation & Engine Integration
+UNITY_EXE_PATH_ENV = "UNITY_EXE"
+BLENDER_EXE_PATH_ENV = "BLENDER_EXE"
+UNITY_PROJECT_PATH_ENV = "UNITY_PROJECT_PATH"
+UNITY_DAEMON_PORT = 8080
+
+def get_unity_exe() -> Path | None:
+    import os
+    import shutil
+    # 1. Environment variable
+    if UNITY_EXE_PATH_ENV in os.environ:
+        return Path(os.environ[UNITY_EXE_PATH_ENV])
+    # 2. PATH
+    which_unity = shutil.which("Unity")
+    if which_unity:
+        return Path(which_unity)
+    # 3. Common fallback (Windows)
+    fallback = Path(r"C:\Program Files\Unity\Hub\Editor")
+    if fallback.exists():
+        # Just grab the first version found, not ideal but better than nothing
+        for exe in fallback.rglob("Unity.exe"):
+            return exe
+    return None
+
+def get_blender_exe() -> Path | None:
+    import os
+    import shutil
+    # 1. Environment variable
+    if BLENDER_EXE_PATH_ENV in os.environ:
+        return Path(os.environ[BLENDER_EXE_PATH_ENV])
+    # 2. PATH
+    which_blender = shutil.which("blender")
+    if which_blender:
+        return Path(which_blender)
+    # 3. Common fallback (Windows)
+    fallback = Path(r"C:\Program Files\Blender Foundation")
+    if fallback.exists():
+        for exe in fallback.rglob("blender.exe"):
+            return exe
+    return None
+
+def get_unity_project_path() -> Path | None:
+    import os
+    if UNITY_PROJECT_PATH_ENV in os.environ:
+        return Path(os.environ[UNITY_PROJECT_PATH_ENV])
+    return None
+
+# Phase 6: OS-Level Docker Sandbox (Mitigation #72)
+DOCKER_SANDBOX_IMAGE: str = "python:3.11-slim"
+DOCKER_SANDBOX_TIMEOUT: float = 5.0
+DOCKER_SANDBOX_MEMORY: str = "256m"
+DOCKER_SANDBOX_CPUS: str = "1.0"
+
+# Phase 6: QLoRA Fine-Tuning Constants
+TRAINING_BASE_MODEL_ID: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+TRAINING_MAX_SEQ_LENGTH: int = 1024
+TRAINING_MAX_PROMPT_LENGTH: int = 512
 
 
 def load_env() -> None:
@@ -129,3 +202,5 @@ def load_env() -> None:
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    DPO_DATASET_DIR.mkdir(parents=True, exist_ok=True)
+

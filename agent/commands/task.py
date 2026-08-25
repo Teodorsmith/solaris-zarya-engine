@@ -58,6 +58,7 @@ def handle_task(rest: str, planner, fsm, goals, brain, procedural, validator, pr
             validator=validator,
             project_memory=project,
             governor=governor,
+            episodic_memory=governor.episodic_memory if governor else None,
         )
         console.print(f"[bold green]{result}[/bold green]")
     except Exception as e:

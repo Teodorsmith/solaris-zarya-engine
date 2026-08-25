@@ -5,7 +5,12 @@ description = "Autonomous AI Double with 4-Tier Persistent SQLite Memory, AST-Sa
 authors = [
     { name = "Teodor Smith" }
 ]
-license = { text = "GPL-3.0-or-later" }
+license = { text = "AGPL-3.0-or-later" }
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
 readme = "README.md"
 requires-python = ">=3.10"
 
@@ -15,10 +20,21 @@ dependencies = [
     "trafilatura>=1.8.0",
     "requests>=2.31.0",
     "sqlite-vec>=0.1.0",
-    "httpx>=0.27.0"
+    "httpx>=0.27.0",
+    "pymupdf>=1.23.0"
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 
+[project.optional-dependencies]
+train = [
+    "torch>=2.0.0",
+    "transformers>=4.38.0",
+    "peft>=0.9.0",
+    "trl>=0.8.0",
+    "bitsandbytes>=0.43.0",
+    "accelerate>=0.27.0",
+    "datasets>=2.16.0"
+]

@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Permission Governor: Enforces HITL Tiers and Depth Caps."""
 
@@ -134,13 +142,13 @@ class PermissionGovernor:
             return False
 
         clean_preview = content_preview[:120].replace("\n", " ")
-        print("\n[GOVERNOR WAKE] File write requires approval (Tier 2 Action):")
+        print("\n[GOVERNOR] Tier 2 action requires approval:")
+        print(f"Action: Write file {file_path}")
         if goal_description:
             print(f"Goal: {goal_description}")
-        print(f"File: {file_path}")
         print(f"Preview: {clean_preview}...")
 
-        response = input("Approve? [y/N]: ").strip().lower()
+        response = input("Proceed? [y/N]: ").strip().lower()
         if response in ("y", "yes"):
             self._log_decision(
                 "USER_APPROVED", f"User approved file write: {file_path}"

@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Tier 2.5: Reasoning Memory (data/reasoning.db) -- Mitigation #61.
 
@@ -47,6 +55,8 @@ CREATE TABLE IF NOT EXISTS reasoning_episodes (
     verified         INTEGER NOT NULL DEFAULT 0,
     srt_json         TEXT,
     confidence       REAL,
+    novelty_score    REAL,
+    entropy_score    REAL,
     created_at       TEXT    NOT NULL
 );
 """
@@ -76,6 +86,21 @@ class ReasoningMemory:
     def _init_schema(self) -> None:
         with self.conn:
             self.conn.execute(_CREATE_TABLE)
+            # Safe migration for existing databases
+            cols = {
+                row["name"]
+                for row in self.conn.execute(
+                    "PRAGMA table_info(reasoning_episodes)"
+                ).fetchall()
+            }
+            if "novelty_score" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE reasoning_episodes ADD COLUMN novelty_score REAL"
+                )
+            if "entropy_score" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE reasoning_episodes ADD COLUMN entropy_score REAL"
+                )
             for idx_sql in _CREATE_INDEXES:
                 self.conn.execute(idx_sql)
 
@@ -92,8 +117,9 @@ class ReasoningMemory:
                     (trace_id, task_id, state, hypothesis, action, observation,
                      error, diagnosis, revised_hypo, generalized_rule,
                      strategy_label, reasoning_domain, outcome_class,
-                     hypothesis_count, verified, srt_json, confidence, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     hypothesis_count, verified, srt_json, confidence,
+                     novelty_score, entropy_score, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     episode.trace_id,
@@ -113,6 +139,8 @@ class ReasoningMemory:
                     int(episode.verified),
                     episode.srt_json,
                     episode.confidence,
+                    episode.novelty_score,
+                    episode.entropy_score,
                     episode.created_at,
                 ),
             )
@@ -123,6 +151,9 @@ class ReasoningMemory:
             episode.outcome_class,
         )
         return row_id
+
+    # Alias for convenience
+    save_episode = log_episode
 
     def mark_verified(self, episode_id: int, srt_json: str) -> None:
         """Set verified=1 and store the SRT JSON.
@@ -189,6 +220,23 @@ class ReasoningMemory:
                 "ORDER BY created_at DESC LIMIT ?",
                 (domain, limit),
             ).fetchall()
+        return [self._row_to_episode(r) for r in rows]
+
+    def get_all_episodes(self, limit: int = 1000) -> list[ReasoningEpisode]:
+        """Return all reasoning episodes ordered by creation date."""
+        rows = self.conn.execute(
+            "SELECT * FROM reasoning_episodes ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_episode(r) for r in rows]
+
+    def get_verified_episodes(self, limit: int = 1000) -> list[ReasoningEpisode]:
+        """Return all verified reasoning episodes."""
+        rows = self.conn.execute(
+            "SELECT * FROM reasoning_episodes WHERE verified=1 "
+            "ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
         return [self._row_to_episode(r) for r in rows]
 
     def count(self) -> int:

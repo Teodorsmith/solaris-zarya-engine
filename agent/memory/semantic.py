@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
 Tier 2: Semantic memory. Facts and passages, hybrid (cosine + keyword)
@@ -22,7 +30,7 @@ from urllib.parse import urlparse, urlunparse
 
 import sqlite_vec
 
-from agent.config import COSINE_WEIGHT, KEYWORD_WEIGHT
+from agent.config import RRF_DENSE_WEIGHT, RRF_FTS5_WEIGHT
 from agent.memory.embeddings import EmbeddingEngine
 from agent.models import Fact, Passage
 
@@ -49,7 +57,9 @@ class SemanticMemory:
                 source_type TEXT NOT NULL,
                 topic TEXT,
                 embedding TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                text_hash TEXT,
+                is_superseded INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS passages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,13 +91,15 @@ class SemanticMemory:
             );
             """
         )
-        # Safe migration: add text_hash column to existing facts tables that lack it
+        # Safe migration: add text_hash and is_superseded to existing facts tables
         existing_cols = {
             row[1]
             for row in self.conn.execute("PRAGMA table_info(facts)").fetchall()
         }
         if "text_hash" not in existing_cols:
             self.conn.execute("ALTER TABLE facts ADD COLUMN text_hash TEXT")
+        if "is_superseded" not in existing_cols:
+            self.conn.execute("ALTER TABLE facts ADD COLUMN is_superseded INTEGER DEFAULT 0")
         self.conn.commit()
 
     # ---- facts -----------------------------------------------------------
@@ -136,21 +148,34 @@ class SemanticMemory:
         self.conn.commit()
         return True, fid
 
-    def correct_fact(self, fact_id: int, new_text: str) -> None:
+    def correct_fact(self, fact_id: int, new_text: str) -> int:
         """User corrections are the highest-authority source: confidence -> 1.0,
-        source_type -> user_corrected, re-embedded and re-indexed for search."""
+        source_type -> user_corrected, re-embedded and re-indexed for search.
+        Marks old fact as is_superseded=1, creates a new fact, and returns new ID.
+        """
+        # Mark old as superseded
+        self.conn.execute("UPDATE facts SET is_superseded = 1 WHERE id = ?", (fact_id,))
+        
+        # We need the topic from the old fact
+        old_fact = self.conn.execute("SELECT topic FROM facts WHERE id = ?", (fact_id,)).fetchone()
+        topic = old_fact["topic"] if old_fact else "Correction"
+
+        # Insert new fact
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
         vec = self.embedder.embed(new_text)
-        self.conn.execute(
-            "UPDATE facts SET text=?, embedding=?, source_type='user_corrected', confidence=1.0 "
-            "WHERE id=?",
-            (new_text, json.dumps(vec), fact_id),
+        text_hash = hashlib.sha256(new_text.encode("utf-8")).hexdigest()
+
+        cur = self.conn.execute(
+            "INSERT INTO facts (text, confidence, source_type, topic, embedding, created_at, text_hash, is_superseded) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (new_text, 1.0, "user_corrected", topic, json.dumps(vec), now, text_hash, 0),
         )
+        new_id = cur.lastrowid
         vec_blob = struct.pack(f"{len(vec)}f", *vec)
-        self.conn.execute(
-            "UPDATE vec_facts SET embedding=? WHERE rowid=?",
-            (vec_blob, fact_id)
-        )
+        self.conn.execute("INSERT INTO vec_facts(rowid, embedding) VALUES (?, ?)", (new_id, vec_blob))
         self.conn.commit()
+        return new_id
 
     def search(self, query: str, top_k: int = 5) -> list[Fact]:
         return [self._row_to_fact(row) for row, _score in self._ranked(query)[:top_k]]
@@ -242,37 +267,75 @@ class SemanticMemory:
         )
 
     # ---- internals -----------------------------------------------------------
-    def _ranked(self, query: str) -> list[tuple[sqlite3.Row, float]]:
+    def _ranked(self, query: str, top_k: int = 100, rrf_k: int = 60) -> list[tuple[sqlite3.Row, float]]:
         qvec = self.embedder.embed(query)
-        kw = self._keyword_scores(query)
-        
         vec_blob = struct.pack(f"{len(qvec)}f", *qvec)
         
-        # We fetch all matching distances from sqlite-vec and rank
-        # sqlite-vec uses 'distance' which is 1 - cosine_similarity roughly, or L2 distance
-        # Actually, sqlite-vec `distance` is cosine distance (1 - cosine) if vectors are normalized.
-        # So cosine similarity = 1.0 - distance
-        rows = self.conn.execute(
-            "SELECT f.*, v.distance "
+        # 1. Dense retrieval
+        dense_rows = self.conn.execute(
+            "SELECT f.id, v.distance "
             "FROM facts f "
             "JOIN vec_facts v ON f.id = v.rowid "
-            "WHERE v.embedding MATCH ? AND k = 100 "
-            "ORDER BY v.distance ASC", (vec_blob,)
+            "WHERE v.embedding MATCH ? AND f.is_superseded = 0 AND k = ? "
+            "ORDER BY v.distance ASC", (vec_blob, top_k)
         ).fetchall()
         
-        if not rows:
+        dense_ranks = {row["id"]: rank for rank, row in enumerate(dense_rows, start=1)}
+        dense_distances = {row["id"]: row["distance"] for row in dense_rows}
+        
+        # 2. Sparse retrieval (FTS5)
+        fts_query = self._fts_or_query(query)
+        sparse_ranks = {}
+        if fts_query:
+            try:
+                # FTS5 bm25 is more negative for better matches, so ASC is correct
+                # Also filter out superseded facts here by joining
+                sparse_rows = self.conn.execute(
+                    "SELECT fts.rowid, bm25(fts.facts_fts) AS score "
+                    "FROM facts_fts fts "
+                    "JOIN facts f ON f.id = fts.rowid "
+                    "WHERE fts.facts_fts MATCH ? AND f.is_superseded = 0 "
+                    "ORDER BY score ASC LIMIT ?",
+                    (fts_query, top_k)
+                ).fetchall()
+                sparse_ranks = {row["rowid"]: rank for rank, row in enumerate(sparse_rows, start=1)}
+            except sqlite3.OperationalError:
+                pass
+                
+        # 3. Union and compute formal RRF
+        all_ids = set(dense_ranks.keys()).union(sparse_ranks.keys())
+        if not all_ids:
             return []
             
-        scored = [
-            (
-                row,
-                COSINE_WEIGHT * (1.0 - (row["distance"] ** 2) / 2.0)
-                + KEYWORD_WEIGHT * kw.get(row["id"], 0.0),
-            )
-            for row in rows
-        ]
-        scored.sort(key=lambda pair: pair[1], reverse=True)
-        return scored
+        rrf_scores = {}
+        for doc_id in all_ids:
+            score = 0.0
+            if doc_id in dense_ranks:
+                score += RRF_DENSE_WEIGHT / (rrf_k + dense_ranks[doc_id])
+            if doc_id in sparse_ranks:
+                score += RRF_FTS5_WEIGHT / (rrf_k + sparse_ranks[doc_id])
+            rrf_scores[doc_id] = score
+            
+        # 4. Fetch full rows and sort
+        placeholders = ",".join(["?"] * len(all_ids))
+        query_str = f"SELECT * FROM facts WHERE id IN ({placeholders}) AND is_superseded = 0"
+        full_rows = self.conn.execute(query_str, list(all_ids)).fetchall()
+        
+        # We sort by RRF, but we will return the absolute cosine similarity as the score 
+        # so the Retriever's CONFIDENT_THRESHOLD (0.80) works correctly on absolute distances.
+        scored = []
+        for row in full_rows:
+            fid = row["id"]
+            # If it was in dense_rows, we know its exact L2 distance
+            # If it's FTS-only, assume a distance of 1.414 (which corresponds to cosine sim 0.0)
+            dist = dense_distances.get(fid, 1.414)
+            cosine_sim = 1.0 - (dist ** 2) / 2.0
+            rrf = rrf_scores[fid]
+            scored.append((row, rrf, cosine_sim))
+            
+        scored.sort(key=lambda x: x[1], reverse=True)
+        # Return (row, absolute_score) where absolute_score is the cosine similarity
+        return [(x[0], x[2]) for x in scored]
 
     @staticmethod
     def _fts_or_query(query: str) -> str:
@@ -284,31 +347,6 @@ class SemanticMemory:
         own IDF weighting already discounts common words like "the"."""
         tokens = re.findall(r"\w+", query.lower())
         return " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
-
-    def _keyword_scores(self, query: str) -> dict[int, float]:
-        fts_query = self._fts_or_query(query)
-        if not fts_query:
-            return {}
-        try:
-            rows = self.conn.execute(
-                "SELECT rowid, bm25(facts_fts) AS score FROM facts_fts WHERE facts_fts MATCH ?",
-                (fts_query,),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return {}  # belt-and-suspenders — shouldn't trigger now tokens are quoted literals
-        if not rows:
-            return {}
-        scores = {r["rowid"]: r["score"] for r in rows}
-        if len(scores) == 1:
-            # A single match can't be min-max normalized meaningfully —
-            # it's the best (and only) one, so score it as such.
-            return {next(iter(scores)): 1.0}
-        # bm25() is lower-is-better; min-max normalize with the sign flipped.
-        lo, hi = min(scores.values()), max(scores.values())
-        spread = hi - lo
-        if spread == 0:
-            return {rid: 1.0 for rid in scores}
-        return {rid: (hi - s) / spread for rid, s in scores.items()}
 
     def _nearest_by_cosine(self, vec: list[float]) -> tuple[int, float] | None:
         vec_blob = struct.pack(f"{len(vec)}f", *vec)

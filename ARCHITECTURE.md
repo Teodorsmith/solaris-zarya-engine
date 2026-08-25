@@ -14,18 +14,19 @@
 
 > [!IMPORTANT]
 > ### IMPLEMENTATION STATUS: SUBSTRATE VS. EXTENDED HORIZONS
-> - **Active Implemented Core (Phases 0–3 CLI REPL)**:
+> - **Active Implemented Core (Phases 0–4 & Sandbox & QLoRA)**:
 >   - **4-Tier SQLite WAL Memory**: `episodic.db`, `semantic.db`, `procedural.db`, `projects.db`, `goals.db`.
 >   - **Hybrid Retrieval & Gate**: FastEmbed ONNX (`bge-small-en-v1.5`) dense cosine + SQLite FTS5 BM25 weighted blend with direct 0.65 / 0.80 two-threshold confidence gate and closed-world refusal.
->   - **Skill Execution Safety**: Host-side Python AST allowlist validator (`agent/engine/validator.py`) with subprocess test runner and 2-retry repair loop.
+>   - **Skill Execution Safety**: Host-side Python AST allowlist validator (`agent/engine/validator.py`) and strict Docker OS-Level Sandbox containment.
 >   - **Task DAG & FSM**: Goal DAG decomposition, deterministic file-write tier overrides, and crash-resilient `data/active_task.json` + `data/state_manifest.json` state machine.
 >   - **Permission Governor**: Centralized `PermissionGovernor` enforcing Tier 0/1/2 HITL approval, depth caps, and episodic audit logging.
 >   - **Brain Hot-Swapping**: `BrainManager` hot-swapping Gemini, Groq, OpenAI, Local Ollama/vLLM, and MockBrain.
-> - **Extended Target Specifications (Phases 4–6)**:
->   - Metacognitive Heartbeat daemon, `data/self_model.json`, Tier 2.5 `reasoning.db`, and Lateral Critic (Phase 4).
+>   - **Conversational REPL**: `ChatEngine` fallback maintaining 10-turn context, persona injection, and semantic project grounding.
+>   - **Metacognitive Maintenance (Phase 4)**: Asynchronous Heartbeat daemon, `data/self_model.json`, Tier 2.5 `reasoning.db`, and academic paper ingestion.
+>   - **QLoRA & MoA (Phase 6)**: Mixture-of-Agents routing separating complexity and automated `trl.DPOTrainer` fine-tuning pipeline for LoRA adapters.
+> - **Extended Target Specifications (Phases 5 & 6 Remainder)**:
 >   - Unity and Blender MCP bridges and headless UTF test runner (Phase 5).
->   - Mixture-of-Agents routing and automated DPO fine-tuning pipeline (Phase 6).
->   - Sealed OS containerization (Docker / gVisor).
+>   - Automated Dataset Builder enforcing Novelty/Entropy filters for DPO pair generation (Phase 6).
 
 ---
 

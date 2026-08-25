@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """REPL loop: ask, learn, facts, stats, project, exit."""
 
@@ -26,6 +34,7 @@ from agent.commands.learn import handle_learn
 from agent.commands.skills import handle_skill, handle_skills, handle_run_skill
 from agent.commands.facts import handle_facts
 from agent.commands.project import handle_project_cmd
+from agent.commands.dataset import handle_dataset
 from agent.commands.system import (
     handle_read_file,
     handle_stats,
@@ -34,6 +43,9 @@ from agent.commands.system import (
     handle_brain_cmd,
 )
 from agent.commands.task import handle_task
+from agent.commands.ingest import handle_ingest_paper
+from agent.commands.train import handle_train_cmd
+from agent.engine.chat import ChatEngine
 
 console = Console()
 
@@ -48,10 +60,14 @@ Commands:
   stats                Show memory counts.
   self-model           Show empirical competence matrix and boot count.
   benchmark reasoning  Run ZPD reasoning calibration.
-  brain switch <provider> [model]  Switch active brain (gemini, groq, openai, local, mock).
+  dataset stats|build  Manage DPO reasoning datasets (Mitigations #68, #69).
+  brain switch <provider> [model]  Switch active brain (gemini, groq, openai, local, mock, moa_router).
   brain list           Show registered providers and current brain.
+  /clear               Clear conversational chat context.
   help                 Show this message.
   exit                 Quit.
+
+Any unrecognised text is routed directly to the Conversational Chat Engine.
 """
 
 
@@ -173,14 +189,27 @@ def dispatch_command(
         brain_manager = None
         brain = brain_or_manager
 
+    from agent.engine.dataset_builder import DatasetBuilder
     governor = PermissionGovernor(episodic)
     retriever = Retriever(semantic, episodic, project, brain)
     validator = SkillValidator()
+    dataset_builder = DatasetBuilder(episodic_mem=episodic, semantic_mem=semantic)
     synthesizer = SkillSynthesizer(
-        brain, retriever, procedural, validator, project=project, governor=governor
+        brain, retriever, procedural, validator, project=project, governor=governor,
+        episodic_memory=episodic, dataset_builder=dataset_builder,
     )
     fsm = TaskFSM(ACTIVE_TASK_JSON, STATE_MANIFEST_JSON)
     planner = TaskPlanner(brain, goals)
+    chat_engine = ChatEngine(brain, episodic, semantic, self_model)
+
+    from agent.engine.trainer import ModelTrainer
+    trainer = ModelTrainer(brain_manager=brain_manager, self_model=self_model)
+
+    KNOWN_COMMANDS = {
+        "help", "ask", "learn", "skill", "skills", "run-skill", "facts",
+        "read", "project", "stats", "task", "self-model", "benchmark",
+        "dataset", "brain", "chat", "/clear", "ingest-paper", "train", "correct"
+    }
 
     if command == "help":
         console.print(HELP)
@@ -199,6 +228,9 @@ def dispatch_command(
         handle_run_skill(rest, procedural, validator)
     elif command == "facts":
         handle_facts(rest, semantic)
+    elif command == "correct":
+        from agent.commands.facts import handle_correct
+        handle_correct(rest, semantic, episodic)
     elif command == "read":
         handle_read_file(rest)
     elif command == "project":
@@ -211,7 +243,40 @@ def dispatch_command(
         handle_self_model(self_model)
     elif command == "benchmark" and rest.startswith("reasoning"):
         handle_benchmark_reasoning(rest, brain_manager, self_model)
+    elif command == "dataset":
+        from agent.engine.dataset_builder import DatasetBuilder
+        builder = DatasetBuilder(episodic_mem=episodic, semantic_mem=semantic)
+        handle_dataset(rest, builder)
     elif command == "brain":
         handle_brain_cmd(rest, brain_manager)
+    elif command == "ingest-paper":
+        handle_ingest_paper(rest, semantic)
+    elif command == "train":
+        handle_train_cmd(rest, trainer)
+    elif command == "/clear" or (command == "chat" and rest == "clear"):
+        chat_engine.clear_context()
+    elif command == "chat" and rest == "mode off":
+        import agent.cli as cli_mod
+        cli_mod.CHAT_FALLBACK_ENABLED = False
+        console.print("[green]Chat fallback disabled.[/green]")
+    elif command == "chat" and rest == "mode on":
+        import agent.cli as cli_mod
+        cli_mod.CHAT_FALLBACK_ENABLED = True
+        console.print("[green]Chat fallback enabled.[/green]")
+    elif command == "chat":
+        chat_engine.respond(rest)
     else:
-        console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
+        import agent.cli as cli_mod
+        import difflib
+        
+        # Check for typos of known commands
+        matches = difflib.get_close_matches(command, KNOWN_COMMANDS, n=1, cutoff=0.7)
+        if matches:
+            console.print(f"[yellow]Unknown command '{command}'. Did you mean '{matches[0]}'? (Use 'chat {command}' if this was meant as conversation)[/yellow]")
+        elif getattr(cli_mod, "CHAT_FALLBACK_ENABLED", True):
+            # Fallback routing to conversational chat
+            raw_input = f"{command} {rest}".strip()
+            chat_engine.respond(raw_input)
+        else:
+            console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")
+

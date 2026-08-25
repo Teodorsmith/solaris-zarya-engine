@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Deterministic Task FSM managing data/active_task.json."""
 
@@ -148,6 +156,8 @@ class TaskFSM:
         validator=None,
         project_memory=None,
         governor=None,
+        episodic_memory=None,
+        is_autonomous: bool = False,
     ) -> str:
         """Execute all goals in the DAG to completion.
 
@@ -163,6 +173,8 @@ class TaskFSM:
                             ``project index .``.
             governor:       PermissionGovernor (optional). When provided, tier-2
                             actions and file writes are routed through the governor.
+            is_autonomous:  bool. If True, unsupervised Tier 2 file writes are
+                            automatically denied by the governor.
         """
         # 1. Clean up orphaned pending goals from past aborted/interrupted runs
         if hasattr(goals_db, "abort_orphaned_goals"):
@@ -211,6 +223,43 @@ class TaskFSM:
                         "Goal deadlock: pending goals remain but dependencies unmet."
                     )
                 break
+
+            # Two-marker crash resume check
+            state = self.load_state()
+            if state and state.pending_action_hash == ready_goal.id:
+                if ready_goal.id in state.executed_actions:
+                    ready_goal.status = "COMPLETED"
+                    goals_db.update_status(ready_goal.id, "COMPLETED")
+                    step_outputs[ready_goal.id] = "Already completed (recovered from crash)."
+                    continue
+                else:
+                    print(f"\n[FSM] Ambiguous resume detected.")
+                    print(f"Task: {task_id}")
+                    print(f"Step: {completed_count + 1}/{total_goals}")
+                    print(f"Action: {ready_goal.description}")
+                    print("Status: unknown — the action may or may not have completed.\n")
+                    print("Options:")
+                    print("  r  re-run this action")
+                    print("  s  skip it and continue")
+                    print("  f  fail this step and stop")
+                    print("  a  abort task")
+                    ans = input("Choice [r/s/f/a]: ").strip().lower()
+                    
+                    if ans == "s":
+                        ready_goal.status = "COMPLETED"
+                        goals_db.update_status(ready_goal.id, "COMPLETED")
+                        step_outputs[ready_goal.id] = "Skipped by user after crash."
+                        continue
+                    elif ans == "r":
+                        pass # proceed with execution normally
+                    elif ans == "f":
+                        ready_goal.status = "FAILED"
+                        goals_db.update_status(ready_goal.id, "FAILED")
+                        self.advance("FAILED")
+                        return "Task failed by user during crash resume."
+                    else:
+                        self.advance("FAILED")
+                        return "Task aborted by user during crash resume."
 
             step_num = completed_count + 1
             print(
@@ -291,6 +340,10 @@ class TaskFSM:
                     written_path = self._write_task_file(
                         ready_goal.description, file_content, project_memory, brain
                     )
+                    
+                    if project_memory and project_memory.active_root:
+                        project_memory.upsert_file(written_path, brain=brain, project_root=project_memory.active_root)
+
                     result = f"Written to {written_path}: " + file_content[
                         :200
                     ].replace("\n", " ")
@@ -309,6 +362,28 @@ class TaskFSM:
                 goals_db.update_status(ready_goal.id, "COMPLETED")
                 self.commit_action(ready_goal.id)
                 print("-> Done.")
+                
+                if episodic_memory:
+                    import json
+                    # look for recent failure for this step to log repair
+                    fail_rows = episodic_memory.conn.execute(
+                        "SELECT id, content FROM episodic_log WHERE kind = 'task_failure' ORDER BY id DESC LIMIT 50"
+                    ).fetchall()
+                    for r in fail_rows:
+                        try:
+                            fail_payload = json.loads(r["content"])
+                            if fail_payload.get("step_id") == ready_goal.id:
+                                repair_payload = {
+                                    "original_fail_id": r["id"],
+                                    "task_id": task_id,
+                                    "step_id": ready_goal.id,
+                                    "chosen_code": locals().get("file_content", locals().get("result", "")),
+                                    "exit_code": 0
+                                }
+                                episodic_memory.log_action(json.dumps(repair_payload), success=True, kind="task_repair_resolved")
+                                break
+                        except Exception:
+                            pass
 
             except Exception as e:
                 ready_goal.status = "FAILED"
@@ -316,6 +391,19 @@ class TaskFSM:
                 self.record_failure()
                 self.advance("FAILED")
                 print(f"-> Failed: {e}")
+                
+                if episodic_memory:
+                    import json
+                    payload = {
+                        "step_id": ready_goal.id,
+                        "task_id": task_id,
+                        "prompt": locals().get("prompt", ""),
+                        "code": locals().get("file_content", ""),
+                        "error": str(e),
+                        "exit_code": 1
+                    }
+                    episodic_memory.log_action(json.dumps(payload), success=False, kind="task_failure")
+                    
                 return f"Task failed at step: {ready_goal.description} (Error: {e})"
 
         self.advance("COMPLETED")

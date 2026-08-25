@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
 Deterministic, offline brain. No API key, no network beyond the local
@@ -31,14 +39,19 @@ class MockBrain(BaseBrain):
 
     def generate(self, prompt: str, **kwargs) -> str:
         # A simple deterministic "generation" for tests
-        if "write two Python scripts" in prompt or "skill code" in prompt:
-            return """
-{
-  "skill_name": "email_normalizer",
-  "description": "Validates and normalizes email strings",
+        if "skill code" in prompt or "Topic: " in prompt:
+            import re
+            match = re.search(r"Topic:\s*([^\n]+)", prompt)
+            skill_name = "email_normalizer"
+            if match:
+                skill_name = re.sub(r"[^a-zA-Z0-9]+", "_", match.group(1)).strip("_").lower()
+            return f"""
+{{
+  "skill_name": "{skill_name}",
+  "description": "Validates and normalizes strings",
   "code": "import re\\n\\ndef execute():\\n    pass\\n",
   "test_code": "import unittest\\n\\nclass TestEmail(unittest.TestCase):\\n    def test_pass(self):\\n        self.assertTrue(True)\\n"
-}
+}}
 """
         return f"[Mock generation for prompt: {prompt[:30]}...]"
 

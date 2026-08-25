@@ -1,0 +1,102 @@
+[
+    {
+        "query": "How do I implement Reciprocal Rank Fusion?",
+        "fact": "Reciprocal Rank Fusion (RRF) blends dense and sparse search rankings using the formula RRF(d) = sum(w_m / (k + r_m(d))), where k is typically 60."
+    },
+    {
+        "query": "What is the penalty for using evaluation in AST?",
+        "fact": "Using eval or exec without AST allowlist restrictions can lead to arbitrary code execution vulnerabilities in the sandbox environment."
+    },
+    {
+        "query": "Why does BM25 struggle with synonyms?",
+        "fact": "BM25 is a sparse lexical retrieval algorithm that relies on exact keyword matching, causing it to miss conceptual synonyms unlike dense embedding models."
+    },
+    {
+        "query": "How are project files hashed?",
+        "fact": "Project files are hashed using SHA-256 for incremental indexing, meaning only changed files are re-embedded during updates."
+    },
+    {
+        "query": "Explain the role of the Permission Governor.",
+        "fact": "The Permission Governor intercepts all file writes and system actions, enforcing HITL (Human-in-the-Loop) terminal confirmation before any execution."
+    },
+    {
+        "query": "What does a ZPD ceiling represent?",
+        "fact": "The ZPD ceiling is the highest difficulty tier (1-5) at which the agent can reliably pass benchmark tests without lateral critic intervention."
+    },
+    {
+        "query": "How do we parse PDFs?",
+        "fact": "Layout-aware PDF parsing uses pymupdf (fitz) to extract text dictionaries, compute median font sizes, and heuristic classify spans as Title, H1, H2, or Body."
+    },
+    {
+        "query": "Can the agent write Unity code?",
+        "fact": "Yes, the agent can author Unity MonoBehaviours and run headless C# tests using the Unity Editor command line -runTests -testPlatform EditMode."
+    },
+    {
+        "query": "How is DPO data generated?",
+        "fact": "Direct Preference Optimization (DPO) pairs are constructed by pairing verified successful reasoning traces against early failed traces or logically perturbed variants."
+    },
+    {
+        "query": "What happens if a tool fails to compile?",
+        "fact": "If an AST-sandboxed tool fails, the validator returns the stderr compiler feedback, triggering a 2-retry self-repair loop before failing the state machine."
+    },
+    {
+        "query": "What embeddings are used by default?",
+        "fact": "The default dense retrieval engine uses FastEmbed ONNX with the BAAI/bge-small-en-v1.5 model, producing 384-dimensional vectors."
+    },
+    {
+        "query": "How is the goal DAG stored?",
+        "fact": "The hierarchical Directed Acyclic Goal Graph is stored in goals.db, tracking prerequisites, depth caps, and completion criteria."
+    },
+    {
+        "query": "What is the MoA router?",
+        "fact": "The Mixture-of-Agents (MoA) router separates tasks dynamically, sending routine prompts to base APIs and complex tasks (complexity > 0.5) to fine-tuned LoRA models."
+    },
+    {
+        "query": "Describe the closed-world prompting strategy.",
+        "fact": "Closed-world grounding explicitly forces the LLM to refuse to answer if the context window does not contain information to satisfy the query, minimizing hallucination."
+    },
+    {
+        "query": "How do we prevent training collapse?",
+        "fact": "Training distribution collapse is prevented by the Novelty Filter, which requires new episodes to have a cosine distance > 0.3 from the existing solution-path centroid."
+    },
+    {
+        "query": "What happens during a Heartbeat tick?",
+        "fact": "The Heartbeat daemon executes an asynchronous Perceive -> Evaluate -> Plan -> Act idle loop with a rate limit of 3 actions per hour, pausing on user input."
+    },
+    {
+        "query": "How does the Lateral Critic work?",
+        "fact": "The Lateral Critic dispatches two solvers in parallel. If their embeddings diverge significantly, it arbitrates the discrepancy and logs a full reasoning episode."
+    },
+    {
+        "query": "Explain SQLite WAL mode.",
+        "fact": "Write-Ahead Logging (WAL) is enabled on all SQLite connections (episodic, semantic, procedural) to allow concurrent readers without locking the database."
+    },
+    {
+        "query": "How do we strip headers from academic papers?",
+        "fact": "Running headers and footers are filtered out by dropping text blocks whose bounding box y0/y1 coordinates fall within the top or bottom 5% of the page height."
+    },
+    {
+        "query": "How are task state machines made crash-resilient?",
+        "fact": "The deterministic Task FSM writes its state (PENDING, RUNNING, COMMITTED) to data/active_task.json atomically, allowing it to resume exactly where it left off on reboot."
+    },
+    {
+        "query": "What is the purpose of the strategy label?",
+        "fact": "The strategy_label is appended to telemetry in episodic.db to correlate different reasoning prompts (e.g. Chain-of-Thought vs ReAct) with objective success rates."
+    },
+    {
+        "query": "How is the self-model protected?",
+        "fact": "The self-model JSON is write-protected and verified against a state_manifest on startup to detect manual tampering and roll back corrupted competence scores."
+    },
+    {
+        "query": "What does semantic.db deduplication do?",
+        "fact": "Semantic memory uses an L2 distance threshold to deduplicate incoming facts. If a new passage is >0.95 similar to an existing one, it merges or rejects the update."
+    },
+    {
+        "query": "How does the Symbolic Verifier evaluate logic?",
+        "fact": "The Symbolic Verifier parses Structured Reasoning Traces (SRTs) and translates them into Prolog or Z3 constraints to check for logical entailment without LLM bias."
+    },
+    {
+        "query": "What API does the academic module query?",
+        "fact": "The academic module queries http://export.arxiv.org/api/query to fetch metadata and direct PDF links, falling back to the Semantic Scholar Graph API for enrichment."
+    }
+]

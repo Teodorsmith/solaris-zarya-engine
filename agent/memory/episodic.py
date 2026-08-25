@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Tier 1: Episodic memory. Chronological interaction log with retention pruning."""
 
@@ -78,6 +86,20 @@ class EpisodicMemory:
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def log_action(self, content: str, success: bool, trace_id: str | None = None, kind: str = "action", **kwargs) -> int:
+        import uuid
+        from datetime import datetime, timezone
+        event = EpisodicLog(
+            id=0,
+            trace_id=trace_id or str(uuid.uuid4()),
+            kind=kind,
+            content=content,
+            outcome="success" if success else "failure",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            **kwargs
+        )
+        return self.log_event(event)
 
     def get_trace(self, trace_id: str) -> list[EpisodicLog]:
         rows = self.conn.execute(

@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Brain factory for instantiating the right LLM provider."""
 
@@ -128,6 +136,31 @@ def _build_local_brain(
     return brain
 
 
+def _build_moa_router_brain(embedder, **kwargs) -> BaseBrain:
+    """Build a Mixture-of-Agents router combining a base brain and a LoRA reasoning brain."""
+    from agent.brains.moa_router import MoABrain
+    from agent.config import MOA_ROUTING_THRESHOLD
+
+    base_provider = os.getenv(
+        "MOA_BASE_BRAIN", "gemini" if os.getenv("GEMINI_API_KEY") else "mock"
+    )
+    base_builder = BRAIN_BUILDERS.get(base_provider, _build_mock_brain)
+    base_brain = base_builder(embedder)
+
+    lora_provider = os.getenv("MOA_LORA_BRAIN", "local")
+    lora_builder = BRAIN_BUILDERS.get(lora_provider, _build_local_brain)
+    lora_brain = lora_builder(embedder)
+
+    threshold = float(
+        os.getenv("MOA_ROUTING_THRESHOLD", str(MOA_ROUTING_THRESHOLD))
+    )
+    return MoABrain(
+        base_brain=base_brain,
+        lora_brain=lora_brain,
+        complexity_threshold=threshold,
+    )
+
+
 # Simple registry — each builder accepts (embedder, **kwargs)
 BRAIN_BUILDERS = {
     "gemini": _build_gemini_brain,
@@ -136,7 +169,9 @@ BRAIN_BUILDERS = {
     "openrouter": _build_openrouter_brain,
     "local": _build_local_brain,
     "mock": _build_mock_brain,
+    "moa_router": _build_moa_router_brain,
 }
+
 
 
 def get_brain(embedder: EmbeddingEngine | None = None) -> BaseBrain:

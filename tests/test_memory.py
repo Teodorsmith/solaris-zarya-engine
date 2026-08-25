@@ -57,8 +57,8 @@ def test_dedup_bumps_confidence_not_duplicate(semantic):
 
 def test_correct_fact_marks_user_corrected(semantic):
     _, fid = semantic.add_fact(Fact(text="git push uploads commits.", confidence=0.5))
-    semantic.correct_fact(fid, "git push uploads local commits to a remote.")
-    updated = next(f for f in semantic.list_all() if f.id == fid)
+    new_fid = semantic.correct_fact(fid, "git push uploads local commits to a remote.")
+    updated = next(f for f in semantic.list_all() if f.id == new_fid)
     assert updated.source_type == "user_corrected"
     assert updated.confidence == 1.0
     assert "remote" in updated.text

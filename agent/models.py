@@ -1,9 +1,17 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Pydantic schemas. No logic here — just shape."""
 
@@ -52,6 +60,16 @@ class EpisodicLog(BaseModel):
         "self_model_update",
         "heartbeat_cycle",
         "security_violation",
+        # Chat Engine events
+        "chat_user",
+        "chat_assistant",
+        "chat_reset",
+        # Phase 6 — FSM & Synthesizer repair tracking
+        "task_failure",
+        "task_repair_resolved",
+        "skill_repair_resolved",
+        # Phase 6 — user corrections
+        "user_correction",
     ] = "system"
     content: str
     outcome: Literal["success", "failure", "neutral"] = "neutral"
@@ -207,4 +225,30 @@ class ReasoningEpisode(BaseModel):
     verified: bool = False
     srt_json: str | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    novelty_score: float | None = None
+    entropy_score: float | None = None
     created_at: str = Field(default_factory=_now)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Evolutionary Loop & DPO Dataset (Mitigations #68, #69, #70)
+# ---------------------------------------------------------------------------
+
+
+class DPOPreferencePair(BaseModel):
+    """Direct Preference Optimization (DPO) preference pair.
+
+    Encapsulates a prompt, chosen response, and rejected response
+    with gating and provenance metadata for fine-tuning.
+    """
+
+    prompt: str
+    chosen: str
+    rejected: str
+    domain: str | None = None
+    novelty_score: float = 0.0
+    entropy_score: float = 0.0
+    verified: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=_now)
+

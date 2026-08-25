@@ -77,7 +77,8 @@ Build the foundational local memory loop with **zero external API dependencies**
   - `procedural.py`: Tier 3 SQLite WAL store (`skills.db`) storing tool metadata and syncing with real, human-readable `.py` files in `skills/` (Mitigations #15, #35).
   - `seeder.py`: Foundational bootloader populating initial facts from `seed_data/facts.json` (Mitigation #17).
 - `agent/engine/retriever.py`: Cosine similarity + keyword retriever with confidence gating (0.65 / 0.80) and closed-world grounding prompt assembly (Mitigations #29, #37).
-- `agent/cli.py` & `agent/main.py`: Interactive CLI shell supporting `ask`, `correct`, `forget`, and `--demo`.
+- `agent/engine/chat.py`: Multi-turn conversational Chat Engine as the default REPL fallback.
+- `agent/cli.py` & `agent/main.py`: Interactive CLI shell supporting `ask`, `correct`, `forget`, `--demo`, and conversational chat.
 
 ### Key Safeguards Enforced
 - **Mitigation #1**: One-directional import graph (no circular imports).
@@ -306,9 +307,9 @@ Close the evolutionary loop: deploy the Mixture-of-Agents (MoA) router for LoRA 
 
 Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double/ARCHITECTURE.md) and represents long-term engineering depth — pull an item into an active phase only when real build constraints force the issue:
 
-- **OS-Level Containment**: Full gVisor sealed sandbox with read-only squashfs rootfs and 4 prebuilt Docker images (`sandbox-stdlib`, `sandbox-web`, `sandbox-scientific`, `sandbox-full`; Mitigations #38, #57–#60).
-- **Advanced Retrieval**: Hybrid Reciprocal Rank Fusion (dense ONNX + BM25 FTS5), calibrated confidence thresholds via labeled evaluation set (`calibration/queries.json`; Mitigations #30, #37, #53).
-- **Autonomous Deep Research & Academic Ingestion**: Structured paper search (arXiv API, Semantic Scholar Graph, CrossRef, Google Scholar), PDF section chunking (`pypdf`/`pymupdf`), bounded DAG research pipelines (max breadth/depth caps), and auto-indexing of synthesized research artifacts into Project Memory (Section 9.1).
+- ~~**OS-Level Containment**: Full Docker sealed sandbox with read-only rootfs and strict process constraints (Mitigations #38, #57–#60).~~ ✅ **Implemented** (DockerSandboxRunner with AST pre-flight checks).
+- ~~**Advanced Retrieval**: Hybrid Reciprocal Rank Fusion (dense ONNX + BM25 FTS5), calibrated confidence thresholds via labeled evaluation set (`calibration/queries.json`; Mitigations #30, #37, #53).~~ ✅ **Implemented**
+- ~~**Autonomous Deep Research & Academic Ingestion**: Structured paper search (arXiv API, Semantic Scholar Graph, CrossRef, Google Scholar), PDF section chunking (`pypdf`/`pymupdf`), bounded DAG research pipelines (max breadth/depth caps), and auto-indexing of synthesized research artifacts into Project Memory (Section 9.1).~~ ✅ **Implemented**
 - ~~**Web Ingestion Resiliency**: Multi-provider fetch chain with quota interception and abort guard (Mitigations #4, #5, #27, #39).~~ ✅ **Implemented** (Added curriculum checkpointing, failovers, and markdown exporting).
 - ~~**Arbitrary Provider Registry**: Dynamic user-editable `brains.json` supporting custom local/cloud OpenAI-compatible endpoints (Mitigation #56).~~ ✅ **Implemented** (Added `BrainManager` multi-tier failovers).
 
@@ -342,8 +343,8 @@ Completing Phases 5 and 6 represents significant research and systems engineerin
 | :--- | :--- | :--- | :--- |
 | Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed** |
 | **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | ✅ **Completed** |
-| **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py` | ✅ **Completed** |
+| **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py`, `tests/test_docker_sandbox.py` | ✅ **Completed** |
 | **Phase 3** | **Supervised Planning, Goal DAG & Task FSM REPL** | `tests/test_goals.py`, `tests/test_state_machine.py`, `tests/test_governor.py`, `tests/test_task_planner.py` | ✅ **Completed** |
-| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py` | ✅ **Completed** |
+| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py`, `tests/test_academic.py`, `tests/test_rrf_calibration.py` | ✅ **Completed** |
 | **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | 🟡 **Active Build Target (8–12 wks)** |
-| **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py` | ⚪ Queued (10–14 wks) |
+| **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py`, `tests/test_trainer_execution.py` | 🟡 **In Progress (MoA / QLoRA implemented)** |
