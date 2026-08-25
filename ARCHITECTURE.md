@@ -500,13 +500,16 @@ Semantic memory stores two primary, complementary knowledge structures:
   ```python
   import os, subprocess
 
+
   def run_sandboxed_test(test_cmd: list[str], timeout: float = 5.0):
       try:
           return subprocess.run(test_cmd, capture_output=True, text=True, timeout=timeout)
       except subprocess.TimeoutExpired as exc:
-          if os.name == 'nt' and exc.pid:
+          if os.name == "nt" and exc.pid:
               # Kill the entire process tree on Windows
-              subprocess.run(["taskkill", "/F", "/T", "/PID", str(exc.pid)], capture_output=True)
+              subprocess.run(
+                  ["taskkill", "/F", "/T", "/PID", str(exc.pid)], capture_output=True
+              )
           raise
   ```
 
@@ -608,12 +611,43 @@ Semantic memory stores two primary, complementary knowledge structures:
       Any node without a handler is rejected by generic_visit.
       The LLM never gets a retry — the proposal is rejected at compile-time."""
 
-      ALLOWED_BUILTINS = frozenset({
-          'len', 'int', 'str', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
-          'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed',
-          'min', 'max', 'sum', 'abs', 'round', 'isinstance', 'hasattr',
-          'print', 'repr', 'type', 'any', 'all', 'hex', 'oct', 'bin', 'ord', 'chr',
-      })
+      ALLOWED_BUILTINS = frozenset(
+          {
+              "len",
+              "int",
+              "str",
+              "float",
+              "bool",
+              "list",
+              "dict",
+              "set",
+              "tuple",
+              "range",
+              "enumerate",
+              "zip",
+              "map",
+              "filter",
+              "sorted",
+              "reversed",
+              "min",
+              "max",
+              "sum",
+              "abs",
+              "round",
+              "isinstance",
+              "hasattr",
+              "print",
+              "repr",
+              "type",
+              "any",
+              "all",
+              "hex",
+              "oct",
+              "bin",
+              "ord",
+              "chr",
+          }
+      )
 
       ALLOWED_IMPORTS = ...  # Populated from Tiered Import Allowlist (Tier 1 + Tier 2)
 
@@ -626,45 +660,86 @@ Semantic memory stores two primary, complementary knowledge structures:
           )
 
       # --- Explicitly allowed structural nodes ---
-      def visit_Module(self, node): self._visit_children(node)
+      def visit_Module(self, node):
+          self._visit_children(node)
+
       def visit_FunctionDef(self, node): ...  # validates name, args, decorators
-      def visit_AsyncFunctionDef(self, node): raise CompilationError("async not allowed")
-      def visit_Return(self, node): self._visit_children(node)
-      def visit_Assign(self, node): self._visit_children(node)
-      def visit_AugAssign(self, node): self._visit_children(node)
-      def visit_AnnAssign(self, node): self._visit_children(node)
-      def visit_If(self, node): self._visit_children(node)
-      def visit_For(self, node): self._visit_children(node)
-      def visit_While(self, node): self._visit_children(node)
-      def visit_With(self, node): self._visit_children(node)
-      def visit_Raise(self, node): self._visit_children(node)
-      def visit_Try(self, node): self._visit_children(node)
-      def visit_ExceptHandler(self, node): self._visit_children(node)
-      def visit_Pass(self, node): pass
-      def visit_Break(self, node): pass
-      def visit_Continue(self, node): pass
+      def visit_AsyncFunctionDef(self, node):
+          raise CompilationError("async not allowed")
+
+      def visit_Return(self, node):
+          self._visit_children(node)
+
+      def visit_Assign(self, node):
+          self._visit_children(node)
+
+      def visit_AugAssign(self, node):
+          self._visit_children(node)
+
+      def visit_AnnAssign(self, node):
+          self._visit_children(node)
+
+      def visit_If(self, node):
+          self._visit_children(node)
+
+      def visit_For(self, node):
+          self._visit_children(node)
+
+      def visit_While(self, node):
+          self._visit_children(node)
+
+      def visit_With(self, node):
+          self._visit_children(node)
+
+      def visit_Raise(self, node):
+          self._visit_children(node)
+
+      def visit_Try(self, node):
+          self._visit_children(node)
+
+      def visit_ExceptHandler(self, node):
+          self._visit_children(node)
+
+      def visit_Pass(self, node):
+          pass
+
+      def visit_Break(self, node):
+          pass
+
+      def visit_Continue(self, node):
+          pass
 
       # --- Expression nodes (each explicitly validated) ---
       def visit_Call(self, node):
           """Only allow calls to ALLOWED_BUILTINS or previously-compiled functions."""
           if isinstance(node.func, ast.Name):
-              if node.func.id not in self.ALLOWED_BUILTINS and \
-                 node.func.id not in self._compiled_function_names:
-                  raise CompilationError(f"Call to unrecognized function: '{node.func.id}'")
+              if (
+                  node.func.id not in self.ALLOWED_BUILTINS
+                  and node.func.id not in self._compiled_function_names
+              ):
+                  raise CompilationError(
+                      f"Call to unrecognized function: '{node.func.id}'"
+                  )
           elif isinstance(node.func, ast.Attribute):
               self._validate_method_call(node)  # checks module.method against allowlist
           else:
-              raise CompilationError(f"Dynamic call expression not allowed at line {node.lineno}")
+              raise CompilationError(
+                  f"Dynamic call expression not allowed at line {node.lineno}"
+              )
           self._visit_children(node)
 
       def visit_Attribute(self, node):
           """Reject ALL dunder attributes — no exceptions."""
-          if node.attr.startswith('__') and node.attr.endswith('__'):
+          if node.attr.startswith("__") and node.attr.endswith("__"):
               raise CompilationError(f"Dunder attribute access rejected: '.{node.attr}'")
           self._visit_children(node)
 
-      def visit_Import(self, node): self._validate_imports(node)
-      def visit_ImportFrom(self, node): self._validate_imports(node)
+      def visit_Import(self, node):
+          self._validate_imports(node)
+
+      def visit_ImportFrom(self, node):
+          self._validate_imports(node)
+
       # ... visit_Constant, visit_Name, visit_BinOp, visit_Compare, etc.
       # Every primitive expression type gets an explicit handler.
 
@@ -819,7 +894,9 @@ Semantic memory stores two primary, complementary knowledge structures:
 - **Problem**: The additive formula `0.6 * dense + 0.4 * sparse` produces false penalties (e.g. `0.54`) when BM25 score is 0.0 (e.g. asking "How to ship local commits to remote?" for `git push`), which drops the score below the 0.65 threshold and triggers a false refusal. It also allows sparse matches to falsely elevate irrelevant dense scores.
 - **Fix**: Decouple Candidate Ranking from Confidence Gating. Use RRF strictly as a Rank Aggregator to select the Top-K candidates. Use the Top-1 candidate's L2-normalized dense cosine similarity for the Gating Metric ($0.65$ / $0.80$):
   ```python
-  def reciprocal_rank_fusion(dense_ranks: dict[str, int], sparse_ranks: dict[str, int], k: int = 60) -> list[tuple[str, float]]:
+  def reciprocal_rank_fusion(
+      dense_ranks: dict[str, int], sparse_ranks: dict[str, int], k: int = 60
+  ) -> list[tuple[str, float]]:
       rrf_scores = {}
       for doc_id, rank in dense_ranks.items():
           rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 / (k + rank))
@@ -1073,16 +1150,18 @@ Semantic memory stores two primary, complementary knowledge structures:
      class SkillResultSchema:
          """Immutable schema — the skill cannot influence this definition.
          Lives in the host binary (validator.py), NOT inside the sandbox."""
-         required_fields: frozenset = frozenset({'exit_code', 'stdout', 'stderr'})
-         optional_fields: frozenset = frozenset({'result', 'metrics'})
-         max_stdout_bytes: int = 65536   # 64KB cap — truncation attack = reject
-         max_stderr_bytes: int = 16384   # 16KB cap
+
+         required_fields: frozenset = frozenset({"exit_code", "stdout", "stderr"})
+         optional_fields: frozenset = frozenset({"result", "metrics"})
+         max_stdout_bytes: int = 65536  # 64KB cap — truncation attack = reject
+         max_stderr_bytes: int = 16384  # 16KB cap
+
 
      def parse_skill_output(raw_bytes: bytes, schema: SkillResultSchema) -> dict | None:
          """Parse sandbox output. Returns None on ANY schema violation.
          None → FAILED_VERIFICATION, even if exit_code was 0."""
          try:
-             text = raw_bytes.decode('utf-8', errors='strict')
+             text = raw_bytes.decode("utf-8", errors="strict")
              if len(text) > schema.max_stdout_bytes:
                  return None  # Truncation attack — reject
              result = json.loads(text)
@@ -1090,7 +1169,9 @@ Semantic memory stores two primary, complementary knowledge structures:
                  return None
              if not schema.required_fields.issubset(result.keys()):
                  return None  # Missing required fields
-             if not set(result.keys()).issubset(schema.required_fields | schema.optional_fields):
+             if not set(result.keys()).issubset(
+                 schema.required_fields | schema.optional_fields
+             ):
                  return None  # Extra fields = reject (no smuggling)
              return result
          except (UnicodeDecodeError, json.JSONDecodeError):
@@ -1263,18 +1344,34 @@ Semantic memory stores two primary, complementary knowledge structures:
       Called AFTER the positive-match compiler passes (Mitigation #25).
       Runs on the HOST, not inside the sandbox."""
       TIER_MAP = {
-          'sandbox-stdlib': TIER_1_MODULES,  # json, re, math, pathlib, ...
-          'sandbox-web': TIER_1_MODULES | {'requests', 'httpx', 'bs4', 'lxml'},
-          'sandbox-scientific': TIER_1_MODULES | {'numpy', 'scipy', 'pandas', 'sklearn', 'matplotlib'},
-          'sandbox-full': TIER_1_MODULES | {'requests', 'httpx', 'bs4', 'lxml',
-                                            'numpy', 'scipy', 'pandas', 'sklearn', 'matplotlib'},
+          "sandbox-stdlib": TIER_1_MODULES,  # json, re, math, pathlib, ...
+          "sandbox-web": TIER_1_MODULES | {"requests", "httpx", "bs4", "lxml"},
+          "sandbox-scientific": TIER_1_MODULES
+          | {"numpy", "scipy", "pandas", "sklearn", "matplotlib"},
+          "sandbox-full": TIER_1_MODULES
+          | {
+              "requests",
+              "httpx",
+              "bs4",
+              "lxml",
+              "numpy",
+              "scipy",
+              "pandas",
+              "sklearn",
+              "matplotlib",
+          },
       }
       # Select smallest satisfying image (ordered by size)
-      for image_name in ['sandbox-stdlib', 'sandbox-web', 'sandbox-scientific', 'sandbox-full']:
+      for image_name in [
+          "sandbox-stdlib",
+          "sandbox-web",
+          "sandbox-scientific",
+          "sandbox-full",
+      ]:
           if compiled_imports.issubset(TIER_MAP[image_name]):
               return image_name
       # No image contains all imports → compilation failure
-      missing = compiled_imports - TIER_MAP['sandbox-full']
+      missing = compiled_imports - TIER_MAP["sandbox-full"]
       raise CompilationError(
           f"Imports {missing} are not available in any sandbox image. "
           f"The skill cannot be executed. Available modules: {sorted(TIER_MAP['sandbox-full'])}"

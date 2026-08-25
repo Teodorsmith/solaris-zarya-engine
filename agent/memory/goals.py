@@ -6,12 +6,15 @@
 # (at your option) any later version.
 
 """Meta-Cognitive Substrate: Goal DAG storage."""
+
 from __future__ import annotations
-import sqlite3
+
 import json
+import sqlite3
 from pathlib import Path
 
 from agent.models import Goal
+
 
 class GoalMemory:
     def __init__(self, db_path: str | Path):
@@ -42,8 +45,12 @@ class GoalMemory:
         except sqlite3.OperationalError:
             pass  # column already exists
 
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goals_parent ON goals(parent_id)"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)"
+        )
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_goals_task ON goals(task_id)")
         self.conn.commit()
 
@@ -55,7 +62,17 @@ class GoalMemory:
             (id, task_id, description, parent_id, dependencies_json, status, completion_criteria, required_tier, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (goal.id, goal.task_id, goal.description, goal.parent_id, deps_json, goal.status, goal.completion_criteria, goal.required_tier, goal.created_at)
+            (
+                goal.id,
+                goal.task_id,
+                goal.description,
+                goal.parent_id,
+                deps_json,
+                goal.status,
+                goal.completion_criteria,
+                goal.required_tier,
+                goal.created_at,
+            ),
         )
         self.conn.commit()
 
@@ -66,7 +83,7 @@ class GoalMemory:
     def abort_orphaned_goals(self, active_task_id: str) -> int:
         cur = self.conn.execute(
             "UPDATE goals SET status='ABORTED' WHERE (task_id != ? OR task_id IS NULL) AND status='PENDING'",
-            (active_task_id,)
+            (active_task_id,),
         )
         self.conn.commit()
         return cur.rowcount
@@ -79,14 +96,20 @@ class GoalMemory:
 
     def get_pending_goals(self, task_id: str | None = None) -> list[Goal]:
         if task_id:
-            rows = self.conn.execute("SELECT * FROM goals WHERE task_id=? AND status='PENDING'", (task_id,)).fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM goals WHERE task_id=? AND status='PENDING'", (task_id,)
+            ).fetchall()
         else:
-            rows = self.conn.execute("SELECT * FROM goals WHERE status='PENDING'").fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM goals WHERE status='PENDING'"
+            ).fetchall()
         return [self._row_to_goal(r) for r in rows]
-        
+
     def get_all_goals(self, task_id: str | None = None) -> list[Goal]:
         if task_id:
-            rows = self.conn.execute("SELECT * FROM goals WHERE task_id=?", (task_id,)).fetchall()
+            rows = self.conn.execute(
+                "SELECT * FROM goals WHERE task_id=?", (task_id,)
+            ).fetchall()
         else:
             rows = self.conn.execute("SELECT * FROM goals").fetchall()
         return [self._row_to_goal(r) for r in rows]
@@ -103,5 +126,5 @@ class GoalMemory:
             status=row["status"],
             completion_criteria=row["completion_criteria"],
             required_tier=row["required_tier"],
-            created_at=row["created_at"]
+            created_at=row["created_at"],
         )

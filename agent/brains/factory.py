@@ -6,6 +6,7 @@
 # (at your option) any later version.
 
 """Brain factory for instantiating the right LLM provider."""
+
 from __future__ import annotations
 
 import logging
@@ -26,14 +27,17 @@ def _build_mock_brain(embedder: EmbeddingEngine | None) -> BaseBrain:
 def _build_gemini_brain(embedder: EmbeddingEngine | None) -> BaseBrain:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        warnings.warn("No GEMINI_API_KEY or GOOGLE_API_KEY found. Falling back to MockBrain.")
+        warnings.warn(
+            "No GEMINI_API_KEY or GOOGLE_API_KEY found. Falling back to MockBrain."
+        )
         return _build_mock_brain(embedder)
-        
+
     model = os.getenv("GEMINI_MODEL", "auto")
     rpm_limit = int(os.getenv("GEMINI_RPM_LIMIT", "15"))
-    
+
     # Lazy import to avoid httpx requirement if not using Gemini
     from agent.brains.gemini_brain import GeminiBrain
+
     return GeminiBrain(api_key=api_key, model=model, rpm_limit=rpm_limit)
 
 
@@ -42,25 +46,54 @@ def _build_groq_brain(embedder) -> BaseBrain:
     if not api_key:
         warnings.warn("No GROQ_API_KEY found. Falling back to MockBrain.")
         return _build_mock_brain(embedder)
-        
+
     model = os.getenv("GROQ_MODEL", "auto")
     rpm_limit = int(os.getenv("GROQ_RPM_LIMIT", "30"))
-    
+
     from agent.brains.groq_brain import GroqBrain
+
     return GroqBrain(api_key=api_key, model=model, rpm_limit=rpm_limit)
+
 
 def _build_openai_brain(embedder) -> BaseBrain:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         warnings.warn("No OPENAI_API_KEY found. Falling back to MockBrain.")
         return _build_mock_brain(embedder)
-        
+
     model = os.getenv("OPENAI_MODEL", "auto")
     rpm_limit = int(os.getenv("OPENAI_RPM_LIMIT", "500"))
     base_url = os.getenv("OPENAI_BASE_URL")
-    
+
     from agent.brains.openai_brain import OpenAIBrain
-    return OpenAIBrain(api_key=api_key, model=model, rpm_limit=rpm_limit, base_url=base_url)
+
+    return OpenAIBrain(
+        api_key=api_key, model=model, rpm_limit=rpm_limit, base_url=base_url
+    )
+
+
+def _build_openrouter_brain(embedder) -> BaseBrain:
+    """Build an OpenAIBrain configured for OpenRouter.
+
+    Reads API key from ``OPENROUTER_API_KEY`` and optional model from ``OPENROUTER_MODEL``.
+    Allows overriding the base URL via ``OPENROUTER_BASE_URL`` (defaults to the public
+    OpenRouter endpoint). Other parameters such as ``rpm_limit`` follow the OpenAI
+    conventions.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        warnings.warn("No OPENROUTER_API_KEY found. Falling back to MockBrain.")
+        return _build_mock_brain(embedder)
+
+    model = os.getenv("OPENROUTER_MODEL", "auto")
+    rpm_limit = int(os.getenv("OPENROUTER_RPM_LIMIT", "500"))
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    from agent.brains.openai_brain import OpenAIBrain
+
+    return OpenAIBrain(
+        api_key=api_key, model=model, rpm_limit=rpm_limit, base_url=base_url
+    )
 
 
 def _build_local_brain(
@@ -76,11 +109,10 @@ def _build_local_brain(
     falls back to the 'default' model name.
     """
     api_key = (
-        os.getenv("LOCAL_LLM_API_KEY")
-        or os.getenv("OPENAI_LIKE_API_KEY")
-        or "ollama"
+        os.getenv("LOCAL_LLM_API_KEY") or os.getenv("OPENAI_LIKE_API_KEY") or "ollama"
     )
     from agent.brains.openai_like_brain import OpenAILikeBrain
+
     brain = OpenAILikeBrain(
         base_url=base_url,
         api_key=api_key,
@@ -90,7 +122,8 @@ def _build_local_brain(
     )
     logger.info(
         "Local brain ready: provider=local base_url=%s model=%s",
-        brain.base_url, brain.model,
+        brain.base_url,
+        brain.model,
     )
     return brain
 
@@ -100,6 +133,7 @@ BRAIN_BUILDERS = {
     "gemini": _build_gemini_brain,
     "groq": _build_groq_brain,
     "openai": _build_openai_brain,
+    "openrouter": _build_openrouter_brain,
     "local": _build_local_brain,
     "mock": _build_mock_brain,
 }
@@ -144,23 +178,37 @@ class BrainManager:
     def switch_to_next_available(self) -> BaseBrain:
         """Switch to the next provider in the failover chain."""
         current_name = ""
-        for name, cls in {"GeminiBrain": "gemini", "GroqBrain": "groq", "OpenAIBrain": "openai", "OpenAILikeBrain": "local", "MockBrain": "mock"}.items():
+        for name, cls in {
+            "GeminiBrain": "gemini",
+            "GroqBrain": "groq",
+            "OpenAIBrain": "openai",
+            "OpenAILikeBrain": "local",
+            "MockBrain": "mock",
+        }.items():
             if name in self._brain.__class__.__name__:
                 current_name = cls
                 break
-                
+
         try:
             current_idx = self.failover_chain.index(current_name)
             next_idx = current_idx + 1
         except ValueError:
             next_idx = 0
-            
+
         if next_idx >= len(self.failover_chain):
-            raise RuntimeError("All brain providers in the failover chain have been exhausted.")
-            
+            raise RuntimeError(
+                "All brain providers in the failover chain have been exhausted."
+            )
+
         next_provider = self.failover_chain[next_idx]
-        logger.info(f"[BRAIN FAILOVER] Swapping from '{current_name}' to '{next_provider}'...")
+        logger.info(
+            f"[BRAIN FAILOVER] Swapping from '{current_name}' to '{next_provider}'..."
+        )
         return self.switch_brain(next_provider)
+        
+    def switch(self, provider: str, **kwargs) -> BaseBrain:
+        """Alias for switch_brain."""
+        return self.switch_brain(provider, **kwargs)
 
     def switch_brain(
         self,
@@ -229,7 +277,8 @@ class BrainManager:
             )
             logger.warning(
                 "brain switch: provider=%s failed (%s) — using mock",
-                provider, exc,
+                provider,
+                exc,
             )
             self._brain = _build_mock_brain(self._embedder)
             return self._brain

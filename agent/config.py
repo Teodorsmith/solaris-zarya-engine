@@ -6,6 +6,7 @@
 # (at your option) any later version.
 
 """Central configuration: paths, constants, thresholds."""
+
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -22,27 +23,35 @@ ACTIVE_TASK_JSON = DATA_DIR / "active_task.json"
 STATE_MANIFEST_JSON = DATA_DIR / "state_manifest.json"
 
 # Phase 4A: Self-Model
-SELF_MODEL_JSON     = DATA_DIR / "self_model.json"
+SELF_MODEL_JSON = DATA_DIR / "self_model.json"
 SELF_MODEL_BAK_JSON = DATA_DIR / "self_model.bak.json"
 
 # Phase 4A: Heartbeat Daemon (Mitigations #41, #46)
-HEARTBEAT_INTERVAL_SECS  = 900   # 15-min idle check; no-op if nothing actionable
-HEARTBEAT_MAX_PER_HOUR   = 3     # hard ceiling on autonomous actions per rolling hour
-HEARTBEAT_DAILY_CALL_CAP = 50    # reserved for future LLM-calling background tasks
-STALE_FACT_DAYS           = 180   # flag facts older than this for review
+HEARTBEAT_INTERVAL_SECS = 900  # 15-min idle check; no-op if nothing actionable
+HEARTBEAT_MAX_PER_HOUR = 3  # hard ceiling on autonomous actions per rolling hour
+HEARTBEAT_DAILY_CALL_CAP = 50  # reserved for future LLM-calling background tasks
+STALE_FACT_DAYS = 180  # flag facts older than this for review
 
 # Phase 4B: Reasoning Memory (Mitigation #61)
 REASONING_DB = DATA_DIR / "reasoning.db"
-REASONING_SUITE_DIR = Path(__file__).resolve().parent.parent / "tests" / "reasoning_suite"
+REASONING_SUITE_DIR = (
+    Path(__file__).resolve().parent.parent / "tests" / "reasoning_suite"
+)
 
 # Phase 4B: Lateral Critic (Mitigation #63)
-CRITIC_SIMILARITY_THRESHOLD = 0.75   # cosine; below = divergent
-CRITIC_BRAIN_B_TEMPERATURE  = 0.85   # fallback temperature for single-provider mode
+CRITIC_SIMILARITY_THRESHOLD = 0.75  # cosine; below = divergent
+CRITIC_BRAIN_B_TEMPERATURE = 0.85  # fallback temperature for single-provider mode
 
 # Phase 4B: ZPD Benchmark (Mitigation #66)
-ZPD_CATEGORIES = ["decomposition", "hypothesis_testing", "causal_reasoning",
-                   "counterexample_gen", "planning", "adversarial"]
-ZPD_MAX_ROUNDS    = 5
+ZPD_CATEGORIES = [
+    "decomposition",
+    "hypothesis_testing",
+    "causal_reasoning",
+    "counterexample_gen",
+    "planning",
+    "adversarial",
+]
+ZPD_MAX_ROUNDS = 5
 ZPD_DIFFICULTY_MIN = 1
 ZPD_DIFFICULTY_MAX = 5
 
@@ -53,10 +62,36 @@ EMBEDDING_DIM = 384
 
 # Project Indexing Filters
 MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024  # 2MB
-IGNORED_DIRS = {".git", "__pycache__", ".venv", "node_modules", "data", ".pytest_cache", ".idea", ".vscode"}
+IGNORED_DIRS = {
+    ".git",
+    "__pycache__",
+    ".venv",
+    "node_modules",
+    "data",
+    ".pytest_cache",
+    ".idea",
+    ".vscode",
+}
 IGNORED_EXTS = {
-    ".pyc", ".pyo", ".exe", ".dll", ".so", ".o", ".a", 
-    ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".sqlite", ".db", ".db-wal", ".db-shm", ".zip", ".tar", ".gz"
+    ".pyc",
+    ".pyo",
+    ".exe",
+    ".dll",
+    ".so",
+    ".o",
+    ".a",
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".sqlite",
+    ".db",
+    ".db-wal",
+    ".db-shm",
+    ".zip",
+    ".tar",
+    ".gz",
 }
 
 # Confidence gate thresholds. Simplified from ARCHITECTURE.md's Stage-1/Stage-2
@@ -72,12 +107,14 @@ KEYWORD_WEIGHT = 0.3
 
 EPISODIC_RETENTION_DAYS = 90
 
+
 def load_env() -> None:
     """Minimal zero-dependency .env loader."""
     env_path = PROJECT_ROOT / ".env"
     if not env_path.exists():
         return
     import os
+
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):

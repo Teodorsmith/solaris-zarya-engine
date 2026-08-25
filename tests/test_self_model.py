@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2026 Teodor Smith
+# Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -6,16 +6,14 @@
 # (at your option) any later version.
 
 """Tests for agent/memory/self_model.py (Phase 4A)."""
+
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 
 def _sha256(path: Path) -> str:
@@ -28,13 +26,12 @@ def _sha256(path: Path) -> str:
 
 def _make_env(tmp: Path):
     """Build a SelfModel with a real episodic DB and manifest in *tmp*."""
-    import sqlite3
-    from agent.memory.state_manifest import StateManifest
     from agent.memory.episodic import EpisodicMemory
     from agent.memory.self_model import SelfModel
+    from agent.memory.state_manifest import StateManifest
 
     model_path = tmp / "self_model.json"
-    bak_path   = tmp / "self_model.bak.json"
+    bak_path = tmp / "self_model.bak.json"
     manifest_path = tmp / "state_manifest.json"
     episodic_path = tmp / "episodic.db"
 
@@ -45,7 +42,6 @@ def _make_env(tmp: Path):
 
 
 class TestSelfModelDefaults(unittest.TestCase):
-
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         self._tmp = Path(self._tmpdir)
@@ -68,12 +64,17 @@ class TestSelfModelDefaults(unittest.TestCase):
         sm.load()
         sm.increment_boot_count()
         # Reload fresh instance from same files
-        from agent.memory.state_manifest import StateManifest
         from agent.memory.episodic import EpisodicMemory
         from agent.memory.self_model import SelfModel
+        from agent.memory.state_manifest import StateManifest
+
         manifest2 = StateManifest(self._tmp / "state_manifest.json")
-        sm2 = SelfModel(model_path, self._tmp / "self_model.bak.json", manifest2,
-                        EpisodicMemory(self._tmp / "episodic.db"))
+        sm2 = SelfModel(
+            model_path,
+            self._tmp / "self_model.bak.json",
+            manifest2,
+            EpisodicMemory(self._tmp / "episodic.db"),
+        )
         sm2.load()
         self.assertEqual(sm2.as_dict()["boot_count"], 1)
 
@@ -108,12 +109,17 @@ class TestSelfModelDefaults(unittest.TestCase):
         # Mutate internal data directly (simulating a bug, not an allowed path)
         sm._data["boot_count"] = 999
         # Do NOT call any save method — reload and check
-        from agent.memory.state_manifest import StateManifest
         from agent.memory.episodic import EpisodicMemory
         from agent.memory.self_model import SelfModel
+        from agent.memory.state_manifest import StateManifest
+
         manifest2 = StateManifest(self._tmp / "state_manifest.json")
-        sm2 = SelfModel(model_path, self._tmp / "self_model.bak.json", manifest2,
-                        EpisodicMemory(self._tmp / "episodic.db"))
+        sm2 = SelfModel(
+            model_path,
+            self._tmp / "self_model.bak.json",
+            manifest2,
+            EpisodicMemory(self._tmp / "episodic.db"),
+        )
         sm2.load()
         self.assertNotEqual(sm2.as_dict()["boot_count"], 999)
 
@@ -127,7 +133,6 @@ class TestSelfModelDefaults(unittest.TestCase):
 
 
 class TestSelfModelTamper(unittest.TestCase):
-
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp()
         self._tmp = Path(self._tmpdir)
@@ -136,7 +141,9 @@ class TestSelfModelTamper(unittest.TestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _boot_fresh(self):
-        sm, manifest, episodic, model_path, bak_path, manifest_path = _make_env(self._tmp)
+        sm, manifest, episodic, model_path, bak_path, manifest_path = _make_env(
+            self._tmp
+        )
         sm.load()
         sm.increment_boot_count()
         return model_path, bak_path, manifest_path
@@ -147,9 +154,10 @@ class TestSelfModelTamper(unittest.TestCase):
         # Corrupt only the main file
         model_path.write_text('{"boot_count": 9999}', encoding="utf-8")
 
-        from agent.memory.state_manifest import StateManifest
         from agent.memory.episodic import EpisodicMemory
         from agent.memory.self_model import SelfModel
+        from agent.memory.state_manifest import StateManifest
+
         manifest2 = StateManifest(manifest_path)
         episodic2 = EpisodicMemory(self._tmp / "episodic.db")
         sm2 = SelfModel(model_path, bak_path, manifest2, episodic2)
@@ -173,9 +181,10 @@ class TestSelfModelTamper(unittest.TestCase):
         model_path.write_text('{"boot_count": 9999}', encoding="utf-8")
         bak_path.write_text('{"boot_count": 8888}', encoding="utf-8")
 
-        from agent.memory.state_manifest import StateManifest
         from agent.memory.episodic import EpisodicMemory
         from agent.memory.self_model import SelfModel
+        from agent.memory.state_manifest import StateManifest
+
         manifest2 = StateManifest(manifest_path)
         episodic2 = EpisodicMemory(self._tmp / "episodic.db")
         sm2 = SelfModel(model_path, bak_path, manifest2, episodic2)
@@ -186,7 +195,11 @@ class TestSelfModelTamper(unittest.TestCase):
 
         # CRITICAL violation logged
         logs = episodic2.recent(30)
-        violations = [l for l in logs if l.kind == "security_violation" and "CRITICAL" in l.content]
+        violations = [
+            l
+            for l in logs
+            if l.kind == "security_violation" and "CRITICAL" in l.content
+        ]
         self.assertTrue(len(violations) >= 1)
 
     def test_tamper_no_backup_resets_to_defaults(self):
@@ -195,9 +208,10 @@ class TestSelfModelTamper(unittest.TestCase):
         model_path.write_text('{"boot_count": 9999}', encoding="utf-8")
         bak_path.unlink()
 
-        from agent.memory.state_manifest import StateManifest
         from agent.memory.episodic import EpisodicMemory
         from agent.memory.self_model import SelfModel
+        from agent.memory.state_manifest import StateManifest
+
         manifest2 = StateManifest(manifest_path)
         episodic2 = EpisodicMemory(self._tmp / "episodic.db")
         sm2 = SelfModel(model_path, bak_path, manifest2, episodic2)

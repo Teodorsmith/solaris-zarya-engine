@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2026 Teodor Smith
+# Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,18 +42,18 @@ SUPPORTED INFERENCE RULES
 Premises that cannot be parsed into the grammar cause verification to fail
 with reason="premise_not_parseable", not a hard exception.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 from agent.models import SRTTrace
-
 
 # ---------------------------------------------------------------------------
 # AST nodes
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Fact:
@@ -65,7 +65,7 @@ class Fact:
 
 @dataclass(frozen=True)
 class Negation:
-    inner: "Atom"
+    inner: Atom
 
     def __str__(self) -> str:
         return f"NOT {self.inner}"
@@ -73,8 +73,8 @@ class Negation:
 
 @dataclass(frozen=True)
 class Conditional:
-    antecedent: "Atom"
-    consequent: "Atom"
+    antecedent: Atom
+    consequent: Atom
 
     def __str__(self) -> str:
         return f"{self.antecedent} -> {self.consequent}"
@@ -82,8 +82,8 @@ class Conditional:
 
 @dataclass(frozen=True)
 class Disjunction:
-    left: "Atom"
-    right: "Atom"
+    left: Atom
+    right: Atom
 
     def __str__(self) -> str:
         return f"{self.left} OR {self.right}"
@@ -95,14 +95,16 @@ Atom = Fact | Negation | Conditional | Disjunction
 # Result
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class VerificationResult:
     """Return value of SRTVerifier.verify()."""
+
     verified: bool
     reason: str
     parsed_premises: list[Atom] = field(default_factory=list)
     rule_applied: str = ""
-    conclusion_atom: Optional[Atom] = None
+    conclusion_atom: Atom | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +199,7 @@ def _atoms_equivalent(a: Atom, b: Atom) -> bool:
 # Inference rule checkers
 # ---------------------------------------------------------------------------
 
+
 def _check_transitive(premises: list[Atom], conclusion: Atom) -> tuple[bool, str]:
     """A->B, B->C => A->C"""
     if not isinstance(conclusion, Conditional):
@@ -209,7 +212,7 @@ def _check_transitive(premises: list[Atom], conclusion: Atom) -> tuple[bool, str
 
     # Walk chain: conclusion.antecedent -> ... -> conclusion.consequent
     current = conclusion.antecedent
-    target  = conclusion.consequent
+    target = conclusion.consequent
     for _ in range(len(premises) + 1):
         if _atoms_equivalent(current, target):
             return True, "transitive chain complete"
@@ -225,7 +228,11 @@ def _check_modus_ponens(premises: list[Atom], conclusion: Atom) -> tuple[bool, s
     for p in premises:
         if isinstance(p, Conditional):
             # Does a Fact matching the antecedent exist?
-            if any(_atoms_equivalent(p.antecedent, q) for q in premises if not isinstance(q, Conditional)):
+            if any(
+                _atoms_equivalent(p.antecedent, q)
+                for q in premises
+                if not isinstance(q, Conditional)
+            ):
                 if _atoms_equivalent(p.consequent, conclusion):
                     return True, "modus_ponens: A->B, A |- B"
     return False, "modus_ponens: no matching A->B, A pair found"
@@ -245,7 +252,9 @@ def _check_modus_tollens(premises: list[Atom], conclusion: Atom) -> tuple[bool, 
     return False, "modus_tollens: no matching A->B, ~B pair found"
 
 
-def _check_disjunctive_syllogism(premises: list[Atom], conclusion: Atom) -> tuple[bool, str]:
+def _check_disjunctive_syllogism(
+    premises: list[Atom], conclusion: Atom
+) -> tuple[bool, str]:
     """A|B, ~A => B  (or A|B, ~B => A)"""
     for p in premises:
         if isinstance(p, Disjunction):
@@ -289,24 +298,27 @@ def _check_conjunction(premises: list[Atom], conclusion: Atom) -> tuple[bool, st
     # Shallow: both halves appear somewhere in premises
     parts = [s.strip() for s in re.split(r"\band\b|&", c_str)]
     for part in parts:
-        if not any(_atoms_equivalent(Fact(part), p) for p in premises if isinstance(p, Fact)):
+        if not any(
+            _atoms_equivalent(Fact(part), p) for p in premises if isinstance(p, Fact)
+        ):
             return False, f"conjunction: '{part}' not found as a premise"
     return True, "conjunction: all conjuncts present in premises"
 
 
 _RULE_CHECKERS = {
-    "transitive_implication":  _check_transitive,
-    "modus_ponens":            _check_modus_ponens,
-    "modus_tollens":           _check_modus_tollens,
-    "disjunctive_syllogism":   _check_disjunctive_syllogism,
-    "de_morgan":               _check_de_morgan,
-    "conjunction":             _check_conjunction,
+    "transitive_implication": _check_transitive,
+    "modus_ponens": _check_modus_ponens,
+    "modus_tollens": _check_modus_tollens,
+    "disjunctive_syllogism": _check_disjunctive_syllogism,
+    "de_morgan": _check_de_morgan,
+    "conjunction": _check_conjunction,
 }
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 class SRTVerifier:
     """Host-side deterministic SRT verifier.

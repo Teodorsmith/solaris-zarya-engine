@@ -128,3 +128,62 @@ class TestExtractFilename:
         fsm = self._fsm(tmp_path)
         result = fsm._extract_filename("")
         assert result == "task_output.md"
+
+class TestTaskPlannerGeneration:
+    def test_task_planner_success(self):
+        from agent.brains.mock_brain import MockBrain
+        brain = MockBrain()
+        goals = MagicMock()
+        planner = TaskPlanner(brain, goals)
+        
+        with patch.object(brain, "generate", return_value="""[
+        {
+          "id": "t1",
+          "description": "Task 1",
+          "required_tier": 1,
+          "completion_criteria": "Done",
+          "dependencies": []
+        },
+        {
+          "id": "t2",
+          "description": "Task 2",
+          "required_tier": 2,
+          "completion_criteria": "Done",
+          "dependencies": ["t1"]
+        }
+        ]"""):
+            plan = planner.plan_task("Test task")
+            assert len(plan) == 2
+            # Notice the IDs are remapped to UUIDs, so we check descriptions
+            assert plan[0].description == "Task 1"
+            assert plan[1].description == "Task 2"
+
+    def test_task_planner_invalid_json(self):
+        from agent.brains.mock_brain import MockBrain
+        brain = MockBrain()
+        goals = MagicMock()
+        planner = TaskPlanner(brain, goals)
+        
+        with patch.object(brain, "generate", return_value="Invalid JSON"):
+            with pytest.raises(ValueError, match="JSON repair failed"):
+                planner.plan_task("Test task")
+
+    def test_task_planner_commit_plan(self):
+        from agent.brains.mock_brain import MockBrain
+        brain = MockBrain()
+        goals = MagicMock()
+        planner = TaskPlanner(brain, goals)
+        
+        with patch.object(brain, "generate", return_value="""[
+        {
+          "id": "t1",
+          "description": "Task 1",
+          "required_tier": 1,
+          "completion_criteria": "Done",
+          "dependencies": []
+        }
+        ]"""):
+            plan = planner.plan_task("Test task")
+            planner.commit_plan(plan)
+            # Should be called once for each goal in plan
+            assert goals.register.call_count == 1

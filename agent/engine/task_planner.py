@@ -6,11 +6,12 @@
 # (at your option) any later version.
 
 """Task Planner: Decomposes tasks into Goal DAGs."""
+
 import logging
-import re
+
 from agent.brains.base import BaseBrain
-from agent.models import Goal
 from agent.memory.goals import GoalMemory
+from agent.models import Goal
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,15 @@ _FILE_ACTION_HINTS: tuple[str, ...] = (
     ".csv",
 )
 
+
 class TaskPlanner:
-    def __init__(self, brain: BaseBrain, goal_memory: GoalMemory, episodic_memory=None, embedder=None):
+    def __init__(
+        self,
+        brain: BaseBrain,
+        goal_memory: GoalMemory,
+        episodic_memory=None,
+        embedder=None,
+    ):
         self.brain = brain
         self.goal_memory = goal_memory
         self.episodic_memory = episodic_memory
@@ -52,12 +60,12 @@ class TaskPlanner:
 
     def _parse_plan_json(self, raw_text: str) -> list[dict]:
         import json
-        
+
         if "</think>" in raw_text:
             raw_text = raw_text.split("</think>", 1)[1]
-            
+
         text = raw_text.strip()
-        
+
         if text.startswith("```"):
             lines = text.split("\n")
             if len(lines) > 1:
@@ -65,22 +73,21 @@ class TaskPlanner:
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
-            
+
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-            
+
         start_idx = text.find("[")
         if start_idx != -1:
             text = text[start_idx:]
-            
+
         text = text.rstrip()
         if not text.endswith("]"):
-            if text.endswith(","):
-                text = text[:-1]
+            text = text.removesuffix(",")
             text += "\n]"
-            
+
         try:
             return json.loads(text)
         except json.JSONDecodeError as e:
@@ -128,11 +135,15 @@ Use internal string IDs (like "goal_1") to set up dependencies.
         novelty_score = 1.0
         if self.episodic_memory and self.embedder:
             try:
-                rows = self.episodic_memory.conn.execute("SELECT content FROM episodic_log WHERE kind='query'").fetchall()
+                rows = self.episodic_memory.conn.execute(
+                    "SELECT content FROM episodic_log WHERE kind='query'"
+                ).fetchall()
                 if rows:
                     curr_emb = self.embedder.embed(prompt)
                     past_embs = self.embedder.embed_batch([r["content"] for r in rows])
-                    max_sim = max(self.embedder.similarity(curr_emb, e) for e in past_embs)
+                    max_sim = max(
+                        self.embedder.similarity(curr_emb, e) for e in past_embs
+                    )
                     novelty_score = max(0.0, 1.0 - max_sim)
             except Exception as e:
                 logger.warning(f"Failed to compute novelty score: {e}")
@@ -141,7 +152,7 @@ Use internal string IDs (like "goal_1") to set up dependencies.
 
         parsed = None
         response = ""
-        
+
         for attempt in range(2):
             if attempt == 0:
                 p = system_prompt
@@ -149,15 +160,16 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                     p += "\n\nNOVELTY ALERT (score > 0.8): First generate 3-5 distinct competing hypotheses for how to decompose this task. Evaluate their edge cases, then output ONLY the final JSON array for the best hypothesis."
             else:
                 p = f"Your previous plan output was invalid or truncated JSON. Output ONLY a valid, complete JSON array with max 3 concise steps for goal: {prompt}"
-                
+
             if attempt == 0 and novelty_score > 0.8 and self.embedder:
                 from agent.engine.critic import CriticSession
+
                 with CriticSession(self.brain, self.brain, self.embedder) as session:
                     res = session.solve(p)
                     response = res.answer
             else:
                 response = self.brain.generate(p)
-            
+
             try:
                 parsed = self._parse_plan_json(response)
                 if not isinstance(parsed, list):
@@ -165,12 +177,15 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                 break
             except Exception as e:
                 if attempt == 1:
-                    raise ValueError(f"Failed to generate valid plan JSON after retry. Output was: {response}. Error: {e}")
+                    raise ValueError(
+                        f"Failed to generate valid plan JSON after retry. Output was: {response}. Error: {e}"
+                    )
 
         goals = []
         # Convert internal string IDs to actual UUIDs
         id_map = {}
         from uuid import uuid4
+
         plan_task_id = str(uuid4())
 
         for p in parsed:
@@ -189,7 +204,7 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                 dependencies=deps,
                 completion_criteria=p["completion_criteria"],
                 required_tier=p["required_tier"],
-                status="PENDING"
+                status="PENDING",
             )
             goals.append(goal)
 
@@ -213,7 +228,8 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                 if goal.required_tier < 2:
                     logger.info(
                         "Tier override: '%s' upgraded from Tier %d to Tier 2 (file-action keyword match).",
-                        goal.description, goal.required_tier,
+                        goal.description,
+                        goal.required_tier,
                     )
                     goal.required_tier = 2
 

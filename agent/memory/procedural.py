@@ -13,6 +13,7 @@ execution) has a stable table to build on, but nothing in Phase 0 ever
 writes a skill here — there's no synthesis pipeline yet. `learn` in
 Phase 0 only seeds facts (see cli.py); it does not create skills.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -45,18 +46,68 @@ class ProceduralMemory:
         self.conn.commit()
 
     def register(self, skill: Skill) -> int:
-        """Records skill metadata. Never called by the agent itself in Phase 0 —
-        exists so the schema and this class are proven before Phase 2 needs them."""
+        """Records skill metadata using an idempotent upsert."""
         cur = self.conn.execute(
-            "INSERT INTO skills (name, description, file_path, verification_tier, created_at) "
-            "VALUES (?,?,?,?,?)",
-            (skill.name, skill.description, skill.file_path, skill.verification_tier, skill.created_at),
+            """
+            INSERT INTO skills (
+                name, description, file_path, verification_tier,
+                success_count, fail_count, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                description = excluded.description,
+                file_path = excluded.file_path,
+                verification_tier = excluded.verification_tier,
+                success_count = excluded.success_count,
+                fail_count = excluded.fail_count,
+                created_at = excluded.created_at
+            """,
+            (
+                skill.name,
+                skill.description,
+                skill.file_path,
+                skill.verification_tier,
+                skill.success_count,
+                skill.fail_count,
+                skill.created_at,
+            ),
         )
         self.conn.commit()
-        return cur.lastrowid
+        row = self.conn.execute(
+            "SELECT id FROM skills WHERE name=?", (skill.name,)
+        ).fetchone()
+        return row[0] if row else (cur.lastrowid or 0)
+
+    def register_skill(
+        self,
+        name: str,
+        code: str = "",
+        test_code: str = "",
+        description: str = "",
+        file_path: str | None = None,
+        verification_tier: str = "mock",
+        created_at: str | None = None,
+    ) -> int:
+        """Convenience helper for registering a skill."""
+        from datetime import datetime, timezone
+
+        skill = Skill(
+            name=name,
+            description=description,
+            file_path=file_path,
+            verification_tier=verification_tier,
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
+        )
+        return self.register(skill)
+
+    def add_skill(self, skill: Skill) -> int:
+        """Alias for register."""
+        return self.register(skill)
 
     def load(self, name: str) -> Skill | None:
-        row = self.conn.execute("SELECT * FROM skills WHERE name=?", (name,)).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM skills WHERE name=?", (name,)
+        ).fetchone()
         if not row:
             return None
         return self._row_to_skill(row)
@@ -69,7 +120,13 @@ class ProceduralMemory:
         return self.conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
 
     def _row_to_skill(self, row: sqlite3.Row) -> Skill:
-        return Skill(id=row["id"], name=row["name"], description=row["description"],
-                    file_path=row["file_path"], verification_tier=row["verification_tier"],
-                    success_count=row["success_count"], fail_count=row["fail_count"],
-                    created_at=row["created_at"])
+        return Skill(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            file_path=row["file_path"],
+            verification_tier=row["verification_tier"],
+            success_count=row["success_count"],
+            fail_count=row["fail_count"],
+            created_at=row["created_at"],
+        )

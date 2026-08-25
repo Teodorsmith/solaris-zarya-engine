@@ -18,6 +18,7 @@ EmbeddingEngine(force_fallback=True) for fast, deterministic, offline
 unit tests — you want that regardless of network access, so your test
 suite doesn't depend on downloading model weights.
 """
+
 from __future__ import annotations
 
 import hashlib

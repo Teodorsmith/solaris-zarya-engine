@@ -6,17 +6,20 @@
 # (at your option) any later version.
 
 """Secondary Boot Recovery Signal."""
+
+import hashlib
 import json
 import os
-import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
+
 from agent.models import TaskState
+
 
 class StateManifest:
     def __init__(self, manifest_file: str | Path):
         self.manifest_file = Path(manifest_file)
-        self.tmp_file = self.manifest_file.with_suffix('.json.tmp')
+        self.tmp_file = self.manifest_file.with_suffix(".json.tmp")
 
     def write_manifest(
         self,
@@ -33,19 +36,21 @@ class StateManifest:
             active_hash = None
         else:
             state_json = state.model_dump_json()
-            active_hash = hashlib.sha256(state_json.encode('utf-8')).hexdigest()
+            active_hash = hashlib.sha256(state_json.encode("utf-8")).hexdigest()
 
         data = {
-            "active_task_hash":   active_hash,
+            "active_task_hash": active_hash,
             # Preserve existing self-model hashes if not being updated
-            "self_model_hash":     self_model_hash if self_model_hash is not None
-                                   else existing.get("self_model_hash"),
-            "self_model_bak_hash": self_model_bak_hash if self_model_bak_hash is not None
-                                   else existing.get("self_model_bak_hash"),
-            "updated_at":          self._now(),
+            "self_model_hash": self_model_hash
+            if self_model_hash is not None
+            else existing.get("self_model_hash"),
+            "self_model_bak_hash": self_model_bak_hash
+            if self_model_bak_hash is not None
+            else existing.get("self_model_bak_hash"),
+            "updated_at": self._now(),
         }
 
-        with open(self.tmp_file, 'w', encoding='utf-8') as f:
+        with open(self.tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(self.tmp_file, self.manifest_file)
 
@@ -53,7 +58,7 @@ class StateManifest:
         if not self.manifest_file.exists():
             return None
         try:
-            with open(self.manifest_file, 'r', encoding='utf-8') as f:
+            with open(self.manifest_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return None

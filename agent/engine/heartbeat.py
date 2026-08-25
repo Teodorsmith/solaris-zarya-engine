@@ -24,6 +24,7 @@ Safety guarantees
 * Subprocess lock: threading.Lock guards any future subprocess-based
   maintenance action to prevent overlap (Phase 4B+; currently unused).
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,8 +44,8 @@ from agent.config import (
     EPISODIC_DB,
     HEARTBEAT_INTERVAL_SECS,
     HEARTBEAT_MAX_PER_HOUR,
-    SEMANTIC_DB,
     REASONING_DB,
+    SEMANTIC_DB,
     STALE_FACT_DAYS,
 )
 
@@ -68,7 +69,7 @@ class HeartbeatDaemon(threading.Thread):
 
     def __init__(
         self,
-        self_model: "SelfModel",
+        self_model: SelfModel,
         pause_event: threading.Event,
     ) -> None:
         super().__init__(name="HeartbeatDaemon", daemon=True)
@@ -146,6 +147,7 @@ class HeartbeatDaemon(threading.Thread):
             return False
         try:
             import subprocess
+
             result = subprocess.run(cmd, capture_output=True, timeout=120)
             return result.returncode == 0
         except Exception as exc:
@@ -224,7 +226,9 @@ class HeartbeatDaemon(threading.Thread):
             return True
         try:
             last_dt = datetime.fromisoformat(last)
-            return (datetime.now(timezone.utc) - last_dt).days >= _REFLECTION_MIN_INTERVAL_DAYS
+            return (
+                datetime.now(timezone.utc) - last_dt
+            ).days >= _REFLECTION_MIN_INTERVAL_DAYS
         except Exception:
             return True
 
@@ -239,7 +243,9 @@ class HeartbeatDaemon(threading.Thread):
             f"{STALE_FACT_DAYS} days. IDs: {stale_ids[:20]}"
         )
         self._log_episodic("stale_fact_alert", content, "neutral")
-        logger.info("HeartbeatDaemon: stale_fact_alert -- %d facts flagged.", len(stale_ids))
+        logger.info(
+            "HeartbeatDaemon: stale_fact_alert -- %d facts flagged.", len(stale_ids)
+        )
 
     def _act_weekly_reflection(self) -> None:
         """Aggregate episodic logs and compute Bayesian posterior adjustments."""
@@ -257,7 +263,9 @@ class HeartbeatDaemon(threading.Thread):
                 (cutoff,),
             ).fetchall()
         except Exception as exc:
-            logger.warning("HeartbeatDaemon: reflection aggregation query failed: %s", exc)
+            logger.warning(
+                "HeartbeatDaemon: reflection aggregation query failed: %s", exc
+            )
             return
 
         if not rows:
@@ -302,30 +310,36 @@ class HeartbeatDaemon(threading.Thread):
         except Exception as exc:
             logger.warning("HeartbeatDaemon: counterfactual query failed: %s", exc)
             return
-            
+
         if not row:
             return
-            
+
         # We need a brain. But HeartbeatDaemon doesn't have self._brain.
         # It's Tier 0. Wait, M#64 says: "Have the idle Heartbeat cycle ask 'What change would make this solution fail?'"
         # Since Heartbeat is STRICTLY Tier 0 and doesn't do LLM calls, this is a contradiction.
         # But Phase 4B updated M#64 to be executed here. We must fetch the global brain_manager's brain.
         from agent.brains.factory import brain_manager
+
         if not brain_manager or not brain_manager.brain:
             return
-            
+
         brain = brain_manager.brain
         prompt = (
             f"Review this verified solution:\nState: {row['state']}\nAction: {row['action']}\n"
             f"What input change or edge case would make this solution fail? Output ONLY the Python input value."
         )
         edge_case = brain.generate(prompt)
-        
+
         from agent.engine.validator import SkillValidator
+
         validator = SkillValidator()
-        result = validator.run_counterfactual_test(row['action'], edge_case)
-        
-        self._log_episodic("heartbeat_cycle", f"Counterfactual test for episode {row['id']}: {result}", "neutral")
+        result = validator.run_counterfactual_test(row["action"], edge_case)
+
+        self._log_episodic(
+            "heartbeat_cycle",
+            f"Counterfactual test for episode {row['id']}: {result}",
+            "neutral",
+        )
 
     # ------------------------------------------------------------------
     # Utility

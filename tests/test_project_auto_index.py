@@ -6,34 +6,35 @@
 # (at your option) any later version.
 
 """Tests for project auto-indexing and Tier-2 HITL gate (Phase 4A prerequisite)."""
+
 from __future__ import annotations
 
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from agent.brains.mock_brain import MockBrain
+from agent.engine.governor import PermissionGovernor
+from agent.engine.state_machine import TaskFSM
 from agent.memory.embeddings import EmbeddingEngine
 from agent.memory.episodic import EpisodicMemory
 from agent.memory.goals import GoalMemory
 from agent.memory.project import ProjectMemory
 from agent.memory.state_manifest import StateManifest
-from agent.engine.governor import PermissionGovernor
-from agent.engine.state_machine import TaskFSM
-from agent.brains.mock_brain import MockBrain
-from agent.models import Goal, TaskState
+from agent.models import Goal
 
 
 def _make_env(tmp: Path):
     embedder = EmbeddingEngine()
     episodic = EpisodicMemory(tmp / "episodic.db")
-    project  = ProjectMemory(tmp / "projects.db", embedder)
-    goals    = GoalMemory(tmp / "goals.db")
+    project = ProjectMemory(tmp / "projects.db", embedder)
+    goals = GoalMemory(tmp / "goals.db")
     manifest = StateManifest(tmp / "state_manifest.json")
-    brain    = MockBrain()
+    brain = MockBrain()
     governor = PermissionGovernor(episodic)
-    fsm      = TaskFSM(tmp / "active_task.json", tmp / "state_manifest.json")
+    fsm = TaskFSM(tmp / "active_task.json", tmp / "state_manifest.json")
     return embedder, episodic, project, goals, brain, governor, fsm
 
 
@@ -62,7 +63,9 @@ class TestFileWriteAutoIndexed(unittest.TestCase):
 
         # Patch governor to auto-approve and brain to return deterministic content
         with patch.object(governor, "request_file_write_permission", return_value=True):
-            with patch.object(brain, "generate", return_value="# Summary\n\nHello world."):
+            with patch.object(
+                brain, "generate", return_value="# Summary\n\nHello world."
+            ):
                 result = fsm.run_to_completion(
                     task_id=plan_goal.task_id,
                     goals_db=goals,
@@ -75,7 +78,9 @@ class TestFileWriteAutoIndexed(unittest.TestCase):
 
         # The file must now appear in project_files without a manual index
         count = project.count()
-        self.assertGreater(count, 0, "Expected at least one file in project_files after FSM write")
+        self.assertGreater(
+            count, 0, "Expected at least one file in project_files after FSM write"
+        )
 
         files = project.conn.execute("SELECT path FROM project_files").fetchall()
         paths = [r[0] for r in files]
@@ -109,11 +114,14 @@ class TestTier2FileWriteRequiresActionPrompt(unittest.TestCase):
 
         written_files = []
         original_write = fsm._write_task_file
+
         def spy_write(desc, content, pm, b):
             written_files.append(desc)
             return original_write(desc, content, pm, b)
 
-        with patch.object(governor, "request_file_write_permission", return_value=False):
+        with patch.object(
+            governor, "request_file_write_permission", return_value=False
+        ):
             with patch.object(brain, "generate", return_value="# Report content"):
                 with patch.object(fsm, "_write_task_file", side_effect=spy_write):
                     result = fsm.run_to_completion(

@@ -10,6 +10,7 @@ Loads seed_data/facts.json into semantic memory on first boot.
 Idempotent: skipped if SEED_VERSION in config.py matches what's already
 been loaded into this database, unless force=True.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,13 +22,17 @@ from agent.models import Fact
 
 
 def _seed_marker_table(conn: sqlite3.Connection) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS seed_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS seed_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
     conn.commit()
 
 
 def _already_seeded_at_current_version(conn: sqlite3.Connection) -> bool:
     _seed_marker_table(conn)
-    row = conn.execute("SELECT value FROM seed_meta WHERE key='seed_version'").fetchone()
+    row = conn.execute(
+        "SELECT value FROM seed_meta WHERE key='seed_version'"
+    ).fetchone()
     return row is not None and int(row[0]) == SEED_VERSION
 
 

@@ -6,6 +6,7 @@
 # (at your option) any later version.
 
 """Tests for agent/engine/heartbeat.py (Phase 4A)."""
+
 from __future__ import annotations
 
 import shutil
@@ -16,21 +17,21 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 def _make_heartbeat(tmp: Path, pause_event=None):
     """Build a HeartbeatDaemon wired to temp DBs."""
-    from agent.memory.state_manifest import StateManifest
+    from agent.engine.heartbeat import HeartbeatDaemon
     from agent.memory.episodic import EpisodicMemory
     from agent.memory.self_model import SelfModel
-    from agent.engine.heartbeat import HeartbeatDaemon
+    from agent.memory.state_manifest import StateManifest
 
     episodic_path = tmp / "episodic.db"
     semantic_path = tmp / "semantic.db"
     manifest_path = tmp / "state_manifest.json"
-    model_path    = tmp / "self_model.json"
-    bak_path      = tmp / "self_model.bak.json"
+    model_path = tmp / "self_model.json"
+    bak_path = tmp / "self_model.bak.json"
 
     # Prime the semantic DB schema so the heartbeat query works
     conn = sqlite3.connect(str(semantic_path))
@@ -54,7 +55,6 @@ def _make_heartbeat(tmp: Path, pause_event=None):
 
     daemon = HeartbeatDaemon(self_model=sm, pause_event=pause_event)
     # Point daemon at our temp DBs
-    from agent.config import EPISODIC_DB, SEMANTIC_DB
     daemon._episodic_conn = HeartbeatDaemon._open_db(episodic_path)
     daemon._semantic_conn = HeartbeatDaemon._open_db(semantic_path)
 
@@ -62,7 +62,6 @@ def _make_heartbeat(tmp: Path, pause_event=None):
 
 
 class TestHeartbeatRateLimit(unittest.TestCase):
-
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
 
@@ -73,6 +72,7 @@ class TestHeartbeatRateLimit(unittest.TestCase):
         """Action #4 within the same hour must be blocked."""
         daemon, sm, episodic, _ = _make_heartbeat(self._tmp)
         from agent.config import HEARTBEAT_MAX_PER_HOUR
+
         # Fill up the rolling window
         for _ in range(HEARTBEAT_MAX_PER_HOUR):
             self.assertTrue(daemon._can_act())
@@ -84,6 +84,7 @@ class TestHeartbeatRateLimit(unittest.TestCase):
         """Timestamps older than 1 hour should be evicted."""
         daemon, _, _, _ = _make_heartbeat(self._tmp)
         from agent.config import HEARTBEAT_MAX_PER_HOUR
+
         # Inject old timestamps (2 hours ago)
         old_ts = time.time() - 7201
         for _ in range(HEARTBEAT_MAX_PER_HOUR):
@@ -93,7 +94,6 @@ class TestHeartbeatRateLimit(unittest.TestCase):
 
 
 class TestHeartbeatPauseGuard(unittest.TestCase):
-
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
 
@@ -120,7 +120,6 @@ class TestHeartbeatPauseGuard(unittest.TestCase):
 
 
 class TestHeartbeatStaleFacts(unittest.TestCase):
-
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
 
@@ -174,7 +173,6 @@ class TestHeartbeatStaleFacts(unittest.TestCase):
 
 
 class TestSubprocessConcurrencyGuard(unittest.TestCase):
-
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
 
@@ -194,7 +192,6 @@ class TestSubprocessConcurrencyGuard(unittest.TestCase):
 
 
 class TestWeeklyReflection(unittest.TestCase):
-
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp())
 
@@ -211,7 +208,16 @@ class TestWeeklyReflection(unittest.TestCase):
             daemon._episodic_conn.execute(
                 "INSERT INTO episodic_log (trace_id, kind, content, outcome, reasoning_domain, strategy_label, outcome_class, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                ("trace-test", "query", "test content", "neutral", "math", "default", outcome, recent_ts),
+                (
+                    "trace-test",
+                    "query",
+                    "test content",
+                    "neutral",
+                    "math",
+                    "default",
+                    outcome,
+                    recent_ts,
+                ),
             )
         daemon._episodic_conn.commit()
 
@@ -225,7 +231,9 @@ class TestWeeklyReflection(unittest.TestCase):
 
         self.assertIn("math::default", deltas)
         self.assertEqual(deltas["math::default"]["total"], 3)
-        self.assertAlmostEqual(deltas["math::default"]["outcome_ratio"], 0.6667, places=4)
+        self.assertAlmostEqual(
+            deltas["math::default"]["outcome_ratio"], 0.6667, places=4
+        )
 
 
 if __name__ == "__main__":

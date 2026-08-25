@@ -2,14 +2,15 @@
 Tests for the confidence-gated retriever. Uses force_fallback embeddings
 (see test_memory.py) for fast, offline, deterministic runs.
 """
+
 import pytest
 
+from agent.brains.mock_brain import MockBrain
 from agent.engine.retriever import Retriever
 from agent.memory.embeddings import EmbeddingEngine
 from agent.memory.episodic import EpisodicMemory
-from agent.memory.semantic import SemanticMemory
 from agent.memory.project import ProjectMemory
-from agent.brains.mock_brain import MockBrain
+from agent.memory.semantic import SemanticMemory
 from agent.models import Fact
 
 
@@ -20,7 +21,11 @@ def retriever(tmp_path):
     episodic = EpisodicMemory(tmp_path / "episodic.db")
     project = ProjectMemory(tmp_path / "projects.db", embedder)
     brain = MockBrain(embedder=embedder)
-    semantic.add_fact(Fact(text="git status shows the working tree state.", topic="git", confidence=0.9))
+    semantic.add_fact(
+        Fact(
+            text="git status shows the working tree state.", topic="git", confidence=0.9
+        )
+    )
     return Retriever(semantic, episodic, project, brain)
 
 

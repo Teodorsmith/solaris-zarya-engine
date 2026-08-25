@@ -1,7 +1,9 @@
-﻿# Copyright (C) 2026 Teodor Smith
+# Copyright (C) 2026 Teodor Smith
 import unittest
+
 from agent.engine.verifier import SRTVerifier
 from agent.models import SRTTrace
+
 
 class TestSRTVerifier(unittest.TestCase):
     def setUp(self):
@@ -12,7 +14,7 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="it is raining",
             premises=["if clouds then it is raining", "clouds"],
             inference_rule="modus_ponens",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertTrue(res.verified, res.reason)
@@ -22,7 +24,7 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="not clouds",
             premises=["if clouds then rain", "not rain"],
             inference_rule="modus_tollens",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertTrue(res.verified, res.reason)
@@ -32,7 +34,7 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="A implies C",
             premises=["A implies B", "B implies C"],
             inference_rule="transitive_implication",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertTrue(res.verified, res.reason)
@@ -42,7 +44,7 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="C",
             premises=["A implies B", "B"],
             inference_rule="modus_ponens",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertFalse(res.verified)
@@ -53,7 +55,7 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="C",
             premises=["A implies B", "A"],
             inference_rule="modus_ponens",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertFalse(res.verified)
@@ -63,11 +65,12 @@ class TestSRTVerifier(unittest.TestCase):
             conclusion="some apples are red",
             premises=["for all apples, they are red"],
             inference_rule="modus_ponens",
-            confidence=1.0
+            confidence=1.0,
         )
         res = self.verifier.verify(srt)
         self.assertFalse(res.verified)
         self.assertIn("quantifier not supported", res.reason)
+
 
 if __name__ == "__main__":
     unittest.main()

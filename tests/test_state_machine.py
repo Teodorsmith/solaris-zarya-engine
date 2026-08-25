@@ -1,6 +1,7 @@
-import pytest
-import os
 from pathlib import Path
+
+import pytest
+
 from agent.engine.state_machine import TaskFSM
 from agent.models import TaskState
 
@@ -29,11 +30,18 @@ def test_atomic_write_and_idempotency(tmp_path: Path):
 
 # ── Schema tests ──────────────────────────────────────────────────────────────
 
+
 def test_taskstate_accepts_all_literals():
     """Every state the FSM writes must be accepted by the Pydantic schema."""
     all_states = [
-        "PENDING", "RUNNING", "VERIFYING", "COMMITTED",
-        "COMPLETED", "FAILED", "ABORTED", "CANCELLED",
+        "PENDING",
+        "RUNNING",
+        "VERIFYING",
+        "COMMITTED",
+        "COMPLETED",
+        "FAILED",
+        "ABORTED",
+        "CANCELLED",
     ]
     for s in all_states:
         ts = TaskState(state=s)
@@ -43,6 +51,7 @@ def test_taskstate_accepts_all_literals():
 def test_taskstate_rejects_unknown_state():
     """Unknown state values must raise a ValidationError."""
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         TaskState(state="BOGUS")
 
@@ -55,8 +64,9 @@ def test_completed_state_roundtrip(tmp_path: Path):
 
     # Manually write COMPLETED to disk (simulates run_to_completion finishing)
     state = TaskState(goal_id="goal_rt", state="COMPLETED")
-    import json
-    (tmp_path / "active_task.json").write_text(state.model_dump_json(), encoding="utf-8")
+    (tmp_path / "active_task.json").write_text(
+        state.model_dump_json(), encoding="utf-8"
+    )
 
     loaded = fsm.load_state()
     assert loaded is not None
@@ -64,6 +74,7 @@ def test_completed_state_roundtrip(tmp_path: Path):
 
 
 # ── Manifest lifecycle tests ──────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize("terminal", ["COMPLETED", "FAILED", "ABORTED", "CANCELLED"])
 def test_terminal_state_clears_active_task(tmp_path: Path, terminal: str):
@@ -111,4 +122,6 @@ def test_corruption_auto_clears_manifest(tmp_path: Path):
 
     result = fsm.load_state()
     assert result is None
-    assert not state_file.exists(), "Corrupt state file should be cleared by load_state()"
+    assert not state_file.exists(), (
+        "Corrupt state file should be cleared by load_state()"
+    )

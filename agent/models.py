@@ -6,11 +6,12 @@
 # (at your option) any later version.
 
 """Pydantic schemas. No logic here — just shape."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal, Optional, Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,39 +21,45 @@ def _now() -> str:
 
 
 class Fact(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     text: str
     confidence: float = 0.7
     source_type: Literal["seed", "learned", "user_corrected", "web_ingestion"] = "seed"
-    topic: Optional[str] = None
+    topic: str | None = None
     created_at: str = Field(default_factory=_now)
 
 
 class Passage(BaseModel):
     """Longer-form context than a Fact — a paragraph, not a single sentence."""
-    id: Optional[int] = None
+
+    id: int | None = None
     text: str
-    topic: Optional[str] = None
+    topic: str | None = None
     source_type: Literal["seed", "learned", "web_ingestion"] = "seed"
     created_at: str = Field(default_factory=_now)
 
 
 class EpisodicLog(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     kind: Literal[
-        "query", "answer", "refusal", "system",
+        "query",
+        "answer",
+        "refusal",
+        "system",
         # Phase 4A events
-        "stale_fact_alert", "self_model_update",
-        "heartbeat_cycle", "security_violation",
+        "stale_fact_alert",
+        "self_model_update",
+        "heartbeat_cycle",
+        "security_violation",
     ] = "system"
     content: str
     outcome: Literal["success", "failure", "neutral"] = "neutral"
-    prompt_hash: Optional[str] = None
-    strategy_label: Optional[str] = None
-    novelty_score: Optional[float] = None
-    reasoning_domain: Optional[str] = None
-    outcome_class: Optional[Literal["success", "failure", "divergent"]] = None
+    prompt_hash: str | None = None
+    strategy_label: str | None = None
+    novelty_score: float | None = None
+    reasoning_domain: str | None = None
+    outcome_class: Literal["success", "failure", "divergent"] | None = None
     hypothesis_count: int = 1
     created_at: str = Field(default_factory=_now)
 
@@ -60,10 +67,11 @@ class EpisodicLog(BaseModel):
 class Skill(BaseModel):
     """Phase 0: schema only. Nothing in Phase 0 writes one of these —
     it exists so Phase 2's synthesis pipeline has a stable table to build on."""
-    id: Optional[int] = None
+
+    id: int | None = None
     name: str
     description: str
-    file_path: Optional[str] = None
+    file_path: str | None = None
     verification_tier: Literal["mock", "real_local", "real_external"] = "mock"
     success_count: int = 0
     fail_count: int = 0
@@ -73,6 +81,7 @@ class Skill(BaseModel):
 class SkillResultSchema(BaseModel):
     """Immutable output schema enforced by the Phase 2 Validator.
     Any skill run must print a JSON object matching this schema."""
+
     skill_name: str
     status: Literal["ok", "error"]
     result: Any = None
@@ -80,7 +89,7 @@ class SkillResultSchema(BaseModel):
 
 
 class Project(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     name: str
     root_path: str
     created_at: str = Field(default_factory=_now)
@@ -88,7 +97,7 @@ class Project(BaseModel):
 
 
 class ProjectFile(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     project_id: int
     path: str
     sha256_hash: str
@@ -98,7 +107,7 @@ class ProjectFile(BaseModel):
 
 
 class ProjectDecision(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     project_id: int
     title: str
     content: str
@@ -110,9 +119,11 @@ class Goal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     dependencies: list[str] = Field(default_factory=list)
-    status: Literal["PENDING", "ACTIVE", "COMPLETED", "FAILED", "ABORTED", "CANCELLED"] = "PENDING"
+    status: Literal[
+        "PENDING", "ACTIVE", "COMPLETED", "FAILED", "ABORTED", "CANCELLED"
+    ] = "PENDING"
     completion_criteria: str
     required_tier: int = 0
     created_at: str = Field(default_factory=_now)
@@ -134,17 +145,18 @@ class TaskState(BaseModel):
         "CANCELLED",
     ] = "PENDING"
     consecutive_failures: int = 0
-    goal_id: Optional[str] = None
-    action_hash: Optional[str] = None
-    pending_action_hash: Optional[str] = None
+    goal_id: str | None = None
+    action_hash: str | None = None
+    pending_action_hash: str | None = None
     executed_actions: list[str] = Field(default_factory=list)
-    prompt_hash: Optional[str] = None
-    strategy_label: Optional[str] = None
+    prompt_hash: str | None = None
+    strategy_label: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # Phase 4B: Reasoning Substrate (Mitigations #61, #63, #65)
 # ---------------------------------------------------------------------------
+
 
 class SRTTrace(BaseModel):
     """Structured Reasoning Trace -- output format for reasoning benchmarks.
@@ -153,11 +165,16 @@ class SRTTrace(BaseModel):
     under the named inference rule. It does NOT mean the premises are
     true in the real world. Explicitly: 'valid inference, not truth verification.'
     """
+
     conclusion: str
     premises: list[str]
     inference_rule: Literal[
-        "transitive_implication", "modus_ponens", "modus_tollens",
-        "disjunctive_syllogism", "de_morgan", "conjunction",
+        "transitive_implication",
+        "modus_ponens",
+        "modus_tollens",
+        "disjunctive_syllogism",
+        "de_morgan",
+        "conjunction",
     ]
     rejected_hypotheses: list[dict[str, str]] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
@@ -169,24 +186,25 @@ class ReasoningEpisode(BaseModel):
     Fields map to: State, Hypothesis, Action, Observation,
     Error, Diagnosis, Revised hypothesis, Generalized Lesson.
     """
-    id: Optional[int] = None
+
+    id: int | None = None
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    task_id: Optional[str] = None
+    task_id: str | None = None
     # SHyAOEDRGL fields
     state: str
     hypothesis: str
     action: str
     observation: str
-    error: Optional[str] = None
-    diagnosis: Optional[str] = None
-    revised_hypo: Optional[str] = None
-    generalized_rule: Optional[str] = None
+    error: str | None = None
+    diagnosis: str | None = None
+    revised_hypo: str | None = None
+    generalized_rule: str | None = None
     # Metadata
-    strategy_label: Optional[str] = None
-    reasoning_domain: Optional[str] = None
+    strategy_label: str | None = None
+    reasoning_domain: str | None = None
     outcome_class: Literal["success", "failure", "divergent"] = "success"
     hypothesis_count: int = Field(default=1, ge=1)
     verified: bool = False
-    srt_json: Optional[str] = None
-    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    srt_json: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     created_at: str = Field(default_factory=_now)

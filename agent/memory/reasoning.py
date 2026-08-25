@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2026 Teodor Smith
+# Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,15 +15,13 @@ Schema: SHyAOEDRGL tuples capturing the full inferential chain.
 Failure-first value: high-novelty failures are prioritised for curriculum replay.
 Permanent retention: no TTL. Reasoning episodes are the most valuable long-term asset.
 """
+
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from agent.models import ReasoningEpisode
 
@@ -119,7 +117,11 @@ class ReasoningMemory:
                 ),
             )
         row_id = cur.lastrowid
-        logger.debug("ReasoningMemory: logged episode id=%s outcome=%s", row_id, episode.outcome_class)
+        logger.debug(
+            "ReasoningMemory: logged episode id=%s outcome=%s",
+            row_id,
+            episode.outcome_class,
+        )
         return row_id
 
     def mark_verified(self, episode_id: int, srt_json: str) -> None:
@@ -190,9 +192,9 @@ class ReasoningMemory:
         return [self._row_to_episode(r) for r in rows]
 
     def count(self) -> int:
-        return self.conn.execute(
-            "SELECT COUNT(*) FROM reasoning_episodes"
-        ).fetchone()[0]
+        return self.conn.execute("SELECT COUNT(*) FROM reasoning_episodes").fetchone()[
+            0
+        ]
 
     def count_by_outcome(self) -> dict[str, int]:
         rows = self.conn.execute(

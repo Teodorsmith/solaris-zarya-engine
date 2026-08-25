@@ -1,7 +1,8 @@
 import json
-from typing import Any, List, Set, Union
+from typing import Any
 
-def _recursive_extract(obj: Any, keys: Set[str]) -> None:
+
+def _recursive_extract(obj: Any, keys: set[str]) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
             keys.add(str(k))
@@ -10,7 +11,8 @@ def _recursive_extract(obj: Any, keys: Set[str]) -> None:
         for item in obj:
             _recursive_extract(item, keys)
 
-def execute(data: Union[str, dict, list] = None) -> List[str]:
+
+def execute(data: str | dict | list = None) -> list[str]:
     if data is None:
         return []
     if isinstance(data, str):
@@ -20,6 +22,6 @@ def execute(data: Union[str, dict, list] = None) -> List[str]:
             return []
     else:
         parsed = data
-    keys: Set[str] = set()
+    keys: set[str] = set()
     _recursive_extract(parsed, keys)
     return sorted(list(keys))

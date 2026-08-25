@@ -6,15 +6,16 @@
 # (at your option) any later version.
 
 """Generic OpenAI-Compatible & Local LLM integration (Ollama, LM Studio, vLLM, OpenRouter)."""
+
 from __future__ import annotations
 
+import logging
 import os
-import time
 import random
 import threading
+import time
+
 import httpx
-import logging
-from typing import Optional
 
 from agent.brains.base import BaseBrain
 from agent.brains.gemini_brain import BrainError
@@ -41,12 +42,12 @@ class OpenAILikeBrain(BaseBrain):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
         model: str = "auto",
         rpm_limit: int = 0,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         raw_base = (
             base_url
@@ -68,12 +69,18 @@ class OpenAILikeBrain(BaseBrain):
         self._lock = threading.Lock()
 
         # Per-instance generation parameters
-        self.temperature: float = temperature if temperature is not None else DEFAULT_TEMPERATURE
-        self.max_tokens: int = max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS
+        self.temperature: float = (
+            temperature if temperature is not None else DEFAULT_TEMPERATURE
+        )
+        self.max_tokens: int = (
+            max_tokens if max_tokens is not None else DEFAULT_MAX_TOKENS
+        )
 
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}" if self.api_key else "Bearer none",
+            "Authorization": f"Bearer {self.api_key}"
+            if self.api_key
+            else "Bearer none",
         }
 
         self.timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
@@ -86,7 +93,8 @@ class OpenAILikeBrain(BaseBrain):
             # Safe log — no keys/tokens, only endpoint and model name
             logger.info(
                 "OpenAILike auto-discovery selected: provider=local base_url=%s model=%s",
-                self.base_url, self.model,
+                self.base_url,
+                self.model,
             )
         else:
             self.model = configured_model
@@ -108,13 +116,16 @@ class OpenAILikeBrain(BaseBrain):
         """
         try:
             # Short independent timeout so a slow local server can't stall the agent.
-            discovery_timeout = httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=5.0)
+            discovery_timeout = httpx.Timeout(
+                connect=5.0, read=5.0, write=5.0, pool=5.0
+            )
             with httpx.Client(timeout=discovery_timeout) as client:
                 res = client.get(f"{self.base_url}/models", headers=self.headers)
                 if res.status_code != 200:
                     logger.debug(
                         "Model discovery: HTTP %s from %s — skipping.",
-                        res.status_code, self.base_url,
+                        res.status_code,
+                        self.base_url,
                     )
                     return []
 
@@ -122,17 +133,27 @@ class OpenAILikeBrain(BaseBrain):
                 models: list[str] = []
 
                 # 1. Standard OpenAI format: {"data": [{"id": ...}]}
-                if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+                if (
+                    isinstance(data, dict)
+                    and "data" in data
+                    and isinstance(data["data"], list)
+                ):
                     for item in data["data"]:
                         if isinstance(item, dict) and "id" in item:
                             models.append(str(item["id"]))
                         elif isinstance(item, str):
                             models.append(item)
                 # 2. Ollama / custom format: {"models": [{"name": ...} or {"id": ...}]}
-                elif isinstance(data, dict) and "models" in data and isinstance(data["models"], list):
+                elif (
+                    isinstance(data, dict)
+                    and "models" in data
+                    and isinstance(data["models"], list)
+                ):
                     for item in data["models"]:
                         if isinstance(item, dict):
-                            name = item.get("name") or item.get("id") or item.get("model")
+                            name = (
+                                item.get("name") or item.get("id") or item.get("model")
+                            )
                             if name:
                                 models.append(str(name))
                         elif isinstance(item, str):
@@ -152,7 +173,8 @@ class OpenAILikeBrain(BaseBrain):
             # auth errors, JSON decode errors — all are non-fatal here.
             logger.debug(
                 "Model discovery failed for %s (%s) — continuing without it.",
-                self.base_url, exc,
+                self.base_url,
+                exc,
             )
             return []
 
@@ -182,13 +204,17 @@ class OpenAILikeBrain(BaseBrain):
             raw = raw.split("</think>", 1)[1]
         return raw.strip()
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, **kwargs) -> str:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": self.temperature,
+            "temperature": kwargs.get("temperature", self.temperature),
             "max_tokens": self.max_tokens,
         }
+        if kwargs.get("json_mode"):
+            payload["response_format"] = {"type": "json_object"}
+        if "repetition_penalty" in kwargs:
+            payload["repeat_penalty"] = kwargs["repetition_penalty"]
 
         last_error = None
         for attempt in range(self.max_retries + 1):
@@ -203,7 +229,12 @@ class OpenAILikeBrain(BaseBrain):
                         try:
                             data = response.json()
                             content = data["choices"][0]["message"]["content"]
-                        except (KeyError, IndexError, TypeError, ValueError) as parse_err:
+                        except (
+                            KeyError,
+                            IndexError,
+                            TypeError,
+                            ValueError,
+                        ) as parse_err:
                             raise BrainError(
                                 f"Malformed response from provider at {self.base_url}: "
                                 f"{parse_err} — raw: {response.text[:200]}"
@@ -223,31 +254,42 @@ class OpenAILikeBrain(BaseBrain):
                         if retry_after and retry_after.isdigit():
                             sleep_duration = float(retry_after)
                         else:
-                            sleep_duration = (2.0 ** attempt) + random.uniform(0.5, 1.5)
+                            sleep_duration = (2.0**attempt) + random.uniform(0.5, 1.5)
 
                         logger.warning(
                             "Provider returned %s. Retrying in %.2fs... (attempt %d/%d)",
-                            response.status_code, sleep_duration, attempt + 1, self.max_retries,
+                            response.status_code,
+                            sleep_duration,
+                            attempt + 1,
+                            self.max_retries,
                         )
                         time.sleep(sleep_duration)
                         continue
 
                     logger.error(
                         "Non-retryable HTTP %s from provider at %s",
-                        response.status_code, self.base_url,
+                        response.status_code,
+                        self.base_url,
                     )
                     response.raise_for_status()
 
             except (httpx.RequestError, httpx.TimeoutException) as exc:
                 last_error = str(exc)
-                sleep_duration = (2.0 ** attempt) + random.uniform(0.5, 1.5)
+                sleep_duration = (2.0**attempt) + random.uniform(0.5, 1.5)
                 logger.warning(
                     "Network error (%s). Retrying in %.2fs... (attempt %d/%d)",
-                    exc.__class__.__name__, sleep_duration, attempt + 1, self.max_retries,
+                    exc.__class__.__name__,
+                    sleep_duration,
+                    attempt + 1,
+                    self.max_retries,
                 )
                 time.sleep(sleep_duration)
 
-        raise BrainError(f"Provider API failed after {self.max_retries} retries. Last error: {last_error}")
+        raise BrainError(
+            f"Provider API failed after {self.max_retries} retries. Last error: {last_error}"
+        )
 
     def embed(self, text: str) -> list[float]:
-        raise NotImplementedError("Embeddings should be handled by FastEmbed via EmbeddingEngine, not OpenAILikeBrain.")
+        raise NotImplementedError(
+            "Embeddings should be handled by FastEmbed via EmbeddingEngine, not OpenAILikeBrain."
+        )

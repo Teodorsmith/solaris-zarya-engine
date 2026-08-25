@@ -6,29 +6,33 @@
 # (at your option) any later version.
 
 """Deterministic Task FSM managing data/active_task.json."""
+
 import json
 import logging
 import os
 import re
 from pathlib import Path
+
 from agent.models import TaskState
 
 logger = logging.getLogger(__name__)
 
 from agent.memory.state_manifest import StateManifest
 
+
 class TaskFSM:
     # States after which active_task.json and the manifest are automatically
     # cleared so the next boot does not offer a stale resume prompt.
     _TERMINAL_STATES = frozenset({"COMPLETED", "FAILED", "ABORTED", "CANCELLED"})
+
     def __init__(self, state_file: str | Path, manifest_file: str | Path):
         self.state_file = Path(state_file)
-        self.tmp_file = self.state_file.with_suffix('.json.tmp')
+        self.tmp_file = self.state_file.with_suffix(".json.tmp")
         self.manifest = StateManifest(manifest_file)
-        
+
     def _write_state(self, state: TaskState) -> None:
         try:
-            with open(self.tmp_file, 'w', encoding='utf-8') as f:
+            with open(self.tmp_file, "w", encoding="utf-8") as f:
                 f.write(state.model_dump_json(indent=2))
             os.replace(self.tmp_file, self.state_file)
             self.manifest.write_manifest(state)
@@ -40,7 +44,7 @@ class TaskFSM:
         if not self.state_file.exists():
             return None
         try:
-            with open(self.state_file, 'r', encoding='utf-8') as f:
+            with open(self.state_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return TaskState(**data)
         except (json.JSONDecodeError, ValueError) as e:
@@ -48,13 +52,24 @@ class TaskFSM:
             self.clear_task()
             return None
 
-    def start_task(self, goal_id: str, prompt_hash: str | None = None, strategy_label: str | None = None) -> TaskState:
-        state = TaskState(goal_id=goal_id, state="PENDING", prompt_hash=prompt_hash, strategy_label=strategy_label)
+    def start_task(
+        self,
+        goal_id: str,
+        prompt_hash: str | None = None,
+        strategy_label: str | None = None,
+    ) -> TaskState:
+        state = TaskState(
+            goal_id=goal_id,
+            state="PENDING",
+            prompt_hash=prompt_hash,
+            strategy_label=strategy_label,
+        )
         self._write_state(state)
         return state
 
     def update_task(self, state: TaskState) -> None:
         from agent.models import _now
+
         state.updated_at = _now()
         self._write_state(state)
 
@@ -73,34 +88,37 @@ class TaskFSM:
 
         # Auto-clean after any terminal state so the next boot is fresh.
         if new_state in self._TERMINAL_STATES:
-            logger.info("FSM reached terminal state '%s' — clearing active_task.json.", new_state)
+            logger.info(
+                "FSM reached terminal state '%s' — clearing active_task.json.",
+                new_state,
+            )
             self.clear_task()
 
         return state
-        
+
     def is_action_executed(self, action_hash: str) -> bool:
         state = self.load_state()
         if not state:
             return False
         return action_hash in state.executed_actions
-        
+
     def commit_action(self, action_hash: str) -> TaskState:
         state = self.load_state()
         if not state:
             raise RuntimeError("No active task to commit.")
-                
+
         if action_hash not in state.executed_actions:
             state.executed_actions.append(action_hash)
             if len(state.executed_actions) > 100:
                 state.executed_actions = state.executed_actions[-100:]
-                
+
         if state.pending_action_hash == action_hash:
             state.pending_action_hash = None
-                
+
         state.state = "COMMITTED"
         self.update_task(state)
         return state
-        
+
     def record_failure(self) -> TaskState:
         state = self.load_state()
         if state:
@@ -172,8 +190,7 @@ class TaskFSM:
                 ]
                 return (
                     f"Final Result: Task '{task_id}' completed successfully "
-                    f"({total_goals}/{total_goals} steps).\n"
-                    + "\n".join(summary_lines)
+                    f"({total_goals}/{total_goals} steps).\n" + "\n".join(summary_lines)
                 )
 
             for g in task_goals:
@@ -190,11 +207,17 @@ class TaskFSM:
             if not ready_goal:
                 if any(g.status == "PENDING" for g in task_goals):
                     self.advance("FAILED")
-                    raise RuntimeError("Goal deadlock: pending goals remain but dependencies unmet.")
+                    raise RuntimeError(
+                        "Goal deadlock: pending goals remain but dependencies unmet."
+                    )
                 break
 
             step_num = completed_count + 1
-            print(f"[Step {step_num}/{total_goals}] Executing: {ready_goal.description}...", end=" ", flush=True)
+            print(
+                f"[Step {step_num}/{total_goals}] Executing: {ready_goal.description}...",
+                end=" ",
+                flush=True,
+            )
             self.advance("RUNNING", action_hash=ready_goal.id)
 
             try:
@@ -205,7 +228,11 @@ class TaskFSM:
                         ctx_parts.append(
                             f"Output of prior step ({goal_map[d].description}):\n{step_outputs[d]}"
                         )
-                ctx = "\n\n".join(ctx_parts) if ctx_parts else "No prior step dependencies."
+                ctx = (
+                    "\n\n".join(ctx_parts)
+                    if ctx_parts
+                    else "No prior step dependencies."
+                )
 
                 if ready_goal.required_tier == 0:
                     # Auto-detect misclassified file-write goals (second line of
@@ -264,10 +291,9 @@ class TaskFSM:
                     written_path = self._write_task_file(
                         ready_goal.description, file_content, project_memory, brain
                     )
-                    result = (
-                        f"Written to {written_path}: "
-                        + file_content[:200].replace("\n", " ")
-                    )
+                    result = f"Written to {written_path}: " + file_content[
+                        :200
+                    ].replace("\n", " ")
 
                 else:
                     # Tier-1: sandboxed generation (no persistent file write)
@@ -303,16 +329,36 @@ class TaskFSM:
     # Used as a second safety net: if the planner misclassified a file-write
     # goal as Tier 0 or 1, the executor detects it and escalates to Tier 2.
     _FILE_ACTION_KEYWORDS: tuple[str, ...] = (
-        "create a new", "create file", "write a", "write file",
-        "write to file", "write the", "save to", "save file", "save a",
-        "output to file", "generate file", "produce file", "store to",
-        "write output", ".md", ".txt", ".py", ".json",
-        ".yaml", ".yml", ".rst", ".html", ".csv",
+        "create a new",
+        "create file",
+        "write a",
+        "write file",
+        "write to file",
+        "write the",
+        "save to",
+        "save file",
+        "save a",
+        "output to file",
+        "generate file",
+        "produce file",
+        "store to",
+        "write output",
+        ".md",
+        ".txt",
+        ".py",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".rst",
+        ".html",
+        ".csv",
     )
 
     _FILE_NAME_PATTERNS = [
-        re.compile(r'["\']([\w./-]+\.[a-zA-Z]{1,5})["\']'),   # quoted filename
-        re.compile(r'\b([\w-]+\.(?:md|txt|py|json|yaml|yml|rst|html|csv))\b'),  # bare extension
+        re.compile(r'["\']([\w./-]+\.[a-zA-Z]{1,5})["\']'),  # quoted filename
+        re.compile(
+            r"\b([\w-]+\.(?:md|txt|py|json|yaml|yml|rst|html|csv))\b"
+        ),  # bare extension
     ]
 
     def _is_file_action(self, description: str) -> bool:

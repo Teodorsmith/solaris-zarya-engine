@@ -1,0 +1,82 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: E:\AI double
+configfile: pyproject.toml
+plugins: anyio-4.14.1, cov-7.1.0
+collected 136 items
+
+tests\reasoning_suite\test_zpd_runner.py ...                             [  2%]
+tests\test_brains.py .....                                               [  5%]
+tests\test_cli_commands.py ..                                            [  7%]
+tests\test_critic.py ...                                                 [  9%]
+tests\test_curriculum.py .                                               [ 10%]
+tests\test_curriculum_resume.py .                                        [ 11%]
+tests\test_domain_deltas.py ..                                           [ 12%]
+tests\test_exporter.py ..                                                [ 13%]
+tests\test_failover.py .                                                 [ 14%]
+tests\test_fsm_integration.py ...                                        [ 16%]
+tests\test_goals.py .                                                    [ 17%]
+tests\test_governor.py ....                                              [ 20%]
+tests\test_heartbeat.py ........                                         [ 26%]
+tests\test_ingest.py ...                                                 [ 28%]
+tests\test_memory.py ......                                              [ 33%]
+tests\test_project.py ...                                                [ 35%]
+tests\test_project_auto_index.py ..                                      [ 36%]
+tests\test_reasoning_memory.py ..                                        [ 38%]
+tests\test_retriever.py .....                                            [ 41%]
+tests\test_retriever_project.py ..                                       [ 43%]
+tests\test_retriever_refusal.py ...                                      [ 45%]
+tests\test_self_model.py ..........                                      [ 52%]
+tests\test_state_machine.py ..........                                   [ 60%]
+tests\test_task_planner.py ........................................      [ 89%]
+tests\test_telemetry.py ..                                               [ 91%]
+tests\test_validator.py ......                                           [ 95%]
+tests\test_verifier.py ......                                            [100%]
+
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.12.10-final-0 _______________
+
+Name                                Stmts   Miss  Cover
+-------------------------------------------------------
+agent\__init__.py                       0      0   100%
+agent\brains\__init__.py                0      0   100%
+agent\brains\base.py                   24     11    54%
+agent\brains\factory.py               101     39    61%
+agent\brains\gemini_brain.py           87     24    72%
+agent\brains\groq_brain.py            118    118     0%
+agent\brains\mock_brain.py             14      4    71%
+agent\brains\openai_brain.py           89     89     0%
+agent\brains\openai_like_brain.py     132    132     0%
+agent\cli.py                          466    411    12%
+agent\config.py                        54     15    72%
+agent\engine\__init__.py                0      0   100%
+agent\engine\benchmark.py              44     44     0%
+agent\engine\critic.py                 55      6    89%
+agent\engine\exporter.py               36      2    94%
+agent\engine\governor.py               77      4    95%
+agent\engine\heartbeat.py             158     46    71%
+agent\engine\ingest.py                 48     12    75%
+agent\engine\planner.py                54     20    63%
+agent\engine\retriever.py              94     14    85%
+agent\engine\search.py                 34      7    79%
+agent\engine\state_machine.py         187     27    86%
+agent\engine\synthesizer.py           110     87    21%
+agent\engine\task_planner.py          103     83    19%
+agent\engine\validator.py             150     59    61%
+agent\engine\verifier.py              163     47    71%
+agent\main.py                          66     66     0%
+agent\memory\__init__.py                0      0   100%
+agent\memory\embeddings.py             40      7    82%
+agent\memory\episodic.py               40      0   100%
+agent\memory\goals.py                  51      2    96%
+agent\memory\procedural.py             28      3    89%
+agent\memory\project.py               180     34    81%
+agent\memory\reasoning.py              60      8    87%
+agent\memory\seeder.py                 31     21    32%
+agent\memory\self_model.py            158     32    80%
+agent\memory\semantic.py               92     11    88%
+agent\memory\state_manifest.py         33      2    94%
+agent\models.py                       117      0   100%
+-------------------------------------------------------
+TOTAL                                3294   1487    55%
+============================= 136 passed in 8.96s =============================

@@ -6,13 +6,15 @@
 # (at your option) any later version.
 
 """Google Gemini integration via direct httpx REST calls with dynamic model discovery."""
+
 from __future__ import annotations
 
+import logging
 import os
 import time
+
 import httpx
-import logging
-from typing import Optional
+
 from agent.brains.base import BaseBrain, QuotaExceededError
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 class BrainError(Exception):
     """Structured error for brain failures (e.g. safety blocks, API limits)."""
-    pass
 
 
 class GeminiBrain(BaseBrain):
@@ -91,19 +92,18 @@ class GeminiBrain(BaseBrain):
             time.sleep(min_interval - elapsed)
         self._last_request_time = time.time()
 
-    def generate(self, prompt: str, max_retries: int = 5) -> str:
+    def generate(self, prompt: str, max_retries: int = 5, **kwargs) -> str:
         """Generate text with automated 429/503 retry backoff."""
         url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
+        
+        temperature = kwargs.get("temperature", 0.2)
+        
         payload = {
-            "contents": [
-                {
-                    "parts": [{"text": prompt}]
-                }
-            ],
+            "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": temperature,
                 "maxOutputTokens": 4096,
-            }
+            },
         }
 
         backoff = 2.0
@@ -122,18 +122,26 @@ class GeminiBrain(BaseBrain):
                         candidate = candidates[0]
                         finish_reason = candidate.get("finishReason")
                         if finish_reason in {"SAFETY", "RECITATION", "BLOCKLIST"}:
-                            raise BrainError(f"Gemini generation blocked by policy: {finish_reason}")
+                            raise BrainError(
+                                f"Gemini generation blocked by policy: {finish_reason}"
+                            )
 
                         parts = candidate.get("content", {}).get("parts", [])
                         if not parts:
-                            raise BrainError("Gemini candidate contains no content parts.")
+                            raise BrainError(
+                                "Gemini candidate contains no content parts."
+                            )
 
                         return parts[0].get("text", "").strip()
 
                     elif response.status_code in (429, 503):
                         if attempt == max_retries - 1:
-                            raise QuotaExceededError(f"Gemini API quota exhausted after {max_retries} retries.")
-                        logger.warning(f"Gemini API returned {response.status_code}. Retrying in {backoff:.2f}s...")
+                            raise QuotaExceededError(
+                                f"Gemini API quota exhausted after {max_retries} retries."
+                            )
+                        logger.warning(
+                            f"Gemini API returned {response.status_code}. Retrying in {backoff:.2f}s..."
+                        )
                         time.sleep(backoff)
                         backoff = min(backoff * 2.0, 30.0)
                         continue
@@ -149,7 +157,11 @@ class GeminiBrain(BaseBrain):
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, 30.0)
 
-        raise BrainError(f"Failed to generate output from Gemini after {max_retries} retries.")
+        raise BrainError(
+            f"Failed to generate output from Gemini after {max_retries} retries."
+        )
 
     def embed(self, text: str) -> list[float]:
-        raise NotImplementedError("Embeddings should be handled by FastEmbed via EmbeddingEngine, not Gemini.")
+        raise NotImplementedError(
+            "Embeddings should be handled by FastEmbed via EmbeddingEngine, not Gemini."
+        )

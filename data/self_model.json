@@ -1,6 +1,6 @@
 {
   "identity": "Autonomous-Agent-v1",
-  "boot_count": 10,
+  "boot_count": 40,
   "last_reflection_at": null,
   "current_focal_areas": [],
   "empirical_competence_matrix": {},
@@ -23,7 +23,14 @@
         "discriminating_test"
       ]
     },
-    "zpd_ceilings": {}
+    "zpd_ceilings": {
+      "decomposition": 0,
+      "hypothesis_testing": 0,
+      "causal_reasoning": 0,
+      "counterexample_gen": 0,
+      "planning": 0,
+      "adversarial": 0
+    }
   },
   "user_preferences": {}
 }

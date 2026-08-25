@@ -8,9 +8,10 @@
 """
 Hybrid retrieval + confidence gating + closed-world answer construction.
 
-Phase 1 extension: integrates ProjectMemory and uses a real Brain to 
+Phase 1 extension: integrates ProjectMemory and uses a real Brain to
 generate the final grounded answer.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,11 +45,11 @@ class RetrievalResult:
 
 class Retriever:
     def __init__(
-        self, 
-        semantic: SemanticMemory, 
+        self,
+        semantic: SemanticMemory,
         episodic: EpisodicMemory,
         project: ProjectMemory,
-        brain: BaseBrain
+        brain: BaseBrain,
     ):
         self.semantic = semantic
         self.episodic = episodic
@@ -59,66 +60,96 @@ class Retriever:
         # 1. Retrieve Semantic Facts
         facts = self.semantic.search(query, top_k=top_k)
         semantic_score = self.semantic.top_score(query)
-        
+
         # 2. Retrieve Project Files (filtered by TENTATIVE_THRESHOLD)
-        semantic_files = self.project.search(query, top_k=5, min_score=TENTATIVE_THRESHOLD)
+        semantic_files = self.project.search(
+            query, top_k=5, min_score=TENTATIVE_THRESHOLD
+        )
         project_score = self.project.top_score(query)
-        
+
         # 3. Exact path matches
         path_matches = []
-        tokens = [t.strip('?.,;:"\'`') for t in query.split()]
+        tokens = [t.strip("?.,;:\"'`") for t in query.split()]
         path_tokens = [
-            t for t in tokens 
-            if "/" in t or "\\" in t or any(t.endswith(ext) for ext in (".py", ".md", ".txt", ".cs", ".json", ".yaml", ".yml", ".toml", ".bat", ".sh"))
+            t
+            for t in tokens
+            if "/" in t
+            or "\\" in t
+            or any(
+                t.endswith(ext)
+                for ext in (
+                    ".py",
+                    ".md",
+                    ".txt",
+                    ".cs",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".toml",
+                    ".bat",
+                    ".sh",
+                )
+            )
         ]
-        
+
         if path_tokens:
             rows = self.project.conn.execute("SELECT * FROM project_files").fetchall()
             for row in rows:
                 p = row["path"]
                 for t in path_tokens:
-                    if p == t or p.endswith("/" + t) or p.endswith("\\" + t) or t.endswith(p):
+                    if (
+                        p == t
+                        or p.endswith("/" + t)
+                        or p.endswith("\\" + t)
+                        or t.endswith(p)
+                    ):
                         path_matches.append(
                             ProjectFile(
-                                id=row["id"], project_id=row["project_id"], path=row["path"], 
-                                sha256_hash=row["sha256_hash"], summary=row["summary"], 
-                                created_at=row["created_at"], updated_at=row["updated_at"]
+                                id=row["id"],
+                                project_id=row["project_id"],
+                                path=row["path"],
+                                sha256_hash=row["sha256_hash"],
+                                summary=row["summary"],
+                                created_at=row["created_at"],
+                                updated_at=row["updated_at"],
                             )
                         )
                         break
 
         project_files = merge_project_results(path_matches, semantic_files, k=5)
-        
+
         # Determine overall best score across semantic and project modalities
         has_path_match = len(path_matches) > 0
         effective_score = max(semantic_score, project_score if semantic_files else 0.0)
         if has_path_match:
             effective_score = max(effective_score, 1.0)
-        
+
         if effective_score >= CONFIDENT_THRESHOLD:
             tier = "confident"
         elif effective_score >= TENTATIVE_THRESHOLD:
             tier = "tentative"
         else:
             tier = "refused"
-            
-        return RetrievalResult(facts=facts, project_files=project_files, score=effective_score, tier=tier)
+
+        return RetrievalResult(
+            facts=facts, project_files=project_files, score=effective_score, tier=tier
+        )
 
     def format_grounded_prompt(self, query: str, result: RetrievalResult) -> str:
         prompt = ""
-        
+
         if result.facts:
             prompt += "SEMANTIC FACTS\n"
             for f in result.facts:
                 prompt += f"- {f.text} (source: {f.source_type})\n"
             prompt += "\n"
-            
+
         if result.project_files:
             prompt += "PROJECT FILES\n"
             for pf in result.project_files:
                 prompt += f"- {pf.path} — {pf.summary}\n"
             prompt += "\n"
-            
+
         prompt += (
             "RULES\n"
             "Answer ONLY using the above.\n"
@@ -134,7 +165,9 @@ class Retriever:
 
         if result.tier == "refused":
             text = "I haven't learned about that yet, and no project files matched. Try `learn` to seed the knowledge base."
-            self.episodic.log_event(EpisodicLog(kind="refusal", content=f"Q: {query}", outcome="neutral"))
+            self.episodic.log_event(
+                EpisodicLog(kind="refusal", content=f"Q: {query}", outcome="neutral")
+            )
             return text
 
         # If using MockBrain (offline mode), skip generation and use the Phase 0 fallback
@@ -149,24 +182,34 @@ class Retriever:
                 )
             else:
                 text = top.text
-            
+
             self.episodic.log_event(
-                EpisodicLog(kind="answer", content=f"Q: {query} -> [MockBrain Answer]", outcome="success")
+                EpisodicLog(
+                    kind="answer",
+                    content=f"Q: {query} -> [MockBrain Answer]",
+                    outcome="success",
+                )
             )
             return text
 
         # Phase 1: Real Generation
         grounded_prompt = self.format_grounded_prompt(query, result)
-        
+
         try:
             text = self.brain.generate(grounded_prompt).strip()
             self.episodic.log_event(
-                EpisodicLog(kind="answer", content=f"Q: {query} -> {text[:100]}...", outcome="success")
+                EpisodicLog(
+                    kind="answer",
+                    content=f"Q: {query} -> {text[:100]}...",
+                    outcome="success",
+                )
             )
             return text
         except Exception as e:
-            text = f"Failed to generate answer from API: {str(e)}"
+            text = f"Failed to generate answer from API: {e!s}"
             self.episodic.log_event(
-                EpisodicLog(kind="refusal", content=f"Q: {query} -> Error", outcome="failure")
+                EpisodicLog(
+                    kind="refusal", content=f"Q: {query} -> Error", outcome="failure"
+                )
             )
             return text

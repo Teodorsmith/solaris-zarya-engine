@@ -2,8 +2,8 @@
 Tests ensuring that project files do not cause false-positive tentative promotions
 on unrelated queries, validating honest refusal behavior.
 """
+
 import pytest
-from pathlib import Path
 
 from agent.brains.mock_brain import MockBrain
 from agent.engine.retriever import Retriever
@@ -23,13 +23,26 @@ def populated_retriever(tmp_path):
     brain = MockBrain(embedder=embedder)
 
     # Seed semantic facts
-    semantic.add_fact(Fact(text="git status shows the working tree state.", topic="git", confidence=0.9))
-    semantic.add_fact(Fact(text="git commit records changes to the repository.", topic="git", confidence=0.9))
+    semantic.add_fact(
+        Fact(
+            text="git status shows the working tree state.", topic="git", confidence=0.9
+        )
+    )
+    semantic.add_fact(
+        Fact(
+            text="git commit records changes to the repository.",
+            topic="git",
+            confidence=0.9,
+        )
+    )
 
     # Index project files
     project.get_or_create_project(tmp_path)
     for p, summary in [
-        ("agent/config.py", "Central configuration paths constants and confidence gate thresholds."),
+        (
+            "agent/config.py",
+            "Central configuration paths constants and confidence gate thresholds.",
+        ),
         ("agent/models.py", "Data models for facts goals skills and episodic logs."),
         ("agent/engine/retriever.py", "Hybrid retrieval and confidence gating logic."),
     ]:
@@ -37,7 +50,7 @@ def populated_retriever(tmp_path):
         project.conn.execute(
             "INSERT INTO project_files (project_id, path, sha256_hash, summary, embedding, created_at, updated_at) "
             "VALUES (1, ?, 'hash123', ?, ?, 'now', 'now')",
-            (p, summary, f"[{','.join(map(str, vec))}]")
+            (p, summary, f"[{','.join(map(str, vec))}]"),
         )
     project.conn.commit()
 
@@ -53,9 +66,13 @@ def test_unrelated_query_refused_despite_indexed_project_files(populated_retriev
     ]
     for q in unrelated_queries:
         result = populated_retriever.retrieve(q)
-        assert result.tier == "refused", f"Query '{q}' was unexpectedly given tier '{result.tier}'"
-        assert result.score < 0.65, f"Query '{q}' scored {result.score}, expected < 0.65"
-        
+        assert result.tier == "refused", (
+            f"Query '{q}' was unexpectedly given tier '{result.tier}'"
+        )
+        assert result.score < 0.65, (
+            f"Query '{q}' scored {result.score}, expected < 0.65"
+        )
+
         answer = populated_retriever.answer(q)
         assert "haven't learned" in answer or "no project files matched" in answer
         assert "pizza" not in answer
