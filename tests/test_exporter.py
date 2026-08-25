@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from agent.engine.exporter import (
     append_unit_to_markdown,
     get_topic_slug,
@@ -11,23 +13,17 @@ def test_get_topic_slug():
 
 
 def test_markdown_export(tmp_path, monkeypatch):
-    # Override the hardcoded data/knowledge path to use tmp_path
-    def mock_path(*args):
-        p = tmp_path / "knowledge"
-        p.mkdir(exist_ok=True)
-        return p
+    knowledge_dir = tmp_path / "knowledge"
+    knowledge_dir.mkdir(exist_ok=True)
 
     import agent.engine.exporter
 
-    monkeypatch.setattr(
-        agent.engine.exporter.Path,
-        "__new__",
-        lambda cls, *args, **kwargs: (
-            tmp_path / "knowledge"
-            if args and args[0] == "data/knowledge"
-            else object.__new__(cls)
-        ),
-    )
+    def mock_path(path_str):
+        if path_str == "data/knowledge":
+            return knowledge_dir
+        return Path(path_str)
+
+    monkeypatch.setattr(agent.engine.exporter, "Path", mock_path)
 
     # Init
     file_path = init_markdown_note("Test Topic", 2, "mock-brain")
@@ -35,7 +31,7 @@ def test_markdown_export(tmp_path, monkeypatch):
     content = file_path.read_text(encoding="utf-8")
     assert "# Curriculum Research: Test Topic" in content
     assert "mock-brain" in content
-    assert "**Planned Units:** 2" in content
+    assert "**Total Units:** 2" in content
 
     # Append Unit
     append_unit_to_markdown(
