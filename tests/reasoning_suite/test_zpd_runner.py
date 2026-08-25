@@ -1,4 +1,13 @@
 # Copyright (C) 2026 Teodor Smith
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# For commercial licensing options without AGPLv3 network-copyleft obligations,
+# contact: teosmith.studios@gmail.com
+
 import unittest
 
 from agent.brains.mock_brain import MockBrain

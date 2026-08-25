@@ -176,14 +176,19 @@ python threshold_sweep.py
 
 ---
 
-## License & Dual-Licensing
+## ⚖️ Licensing & Dual-Licensing
 
-This project is licensed under a **Dual-Licensing Model**.
+This project is made available under a **Dual-Licensing Model**:
 
-1. **Open Source (AGPLv3)**: By default, the project is open-source and free for personal, academic, and community use under the [GNU Affero General Public License v3 (AGPLv3)](LICENSE).
-   *Note: Under AGPLv3, if you modify this software and provide it over a network, you must offer the source code of your modifications to users.*
-   
-2. **Commercial License / AGPL Exemption**: A paid commercial license is available for enterprises that do not want to open-source their proprietary code under AGPLv3 Section 13 requirements. Companies that wish to use this software in closed-source SaaS, proprietary internal tools, or embedded products without complying with AGPLv3 obligations must obtain a separate Commercial License.
+* **Open Source (AGPLv3):** Free for personal, academic, and open-source community use under the terms of the **GNU Affero General Public License v3 (AGPLv3)**.
+  * *Note on Section 13:* If you run a modified version of this software on a server and provide access over a computer network (SaaS, API, or web services), you **must** make the corresponding source code of your modifications freely available to all remote network users.
+* **Commercial License / AGPL Exemption:** If you intend to incorporate this engine into closed-source commercial applications, proprietary SaaS platforms, or internal proprietary infrastructure without open-sourcing your code under AGPLv3, you must purchase a **Commercial License**.
 
-### Contact
-To inquire about commercial licensing or AGPL exceptions, please contact: [teosmith.studios@gmail.com](mailto:teosmith.studios@gmail.com)
+### 💼 Commercial Licensing & Inquiries
+To purchase a commercial license, request custom exemptions, or inquire about enterprise support:
+* **Contact:** `teosmith.studios@gmail.com`
+
+---
+
+### 🏛️ Jurisdiction & Governing Law
+Any legal claim, dispute, or copyright enforcement proceeding arising out of or in connection with this software or its unauthorized use shall be governed by and construed in accordance with the laws of the **European Union** and the local courts of the copyright holder's jurisdiction.
