@@ -351,8 +351,8 @@ class SemanticMemory:
     def _nearest_by_cosine(self, vec: list[float]) -> tuple[int, float] | None:
         vec_blob = struct.pack(f"{len(vec)}f", *vec)
         row = self.conn.execute(
-            "SELECT rowid, distance FROM vec_facts WHERE embedding MATCH ? ORDER BY distance ASC LIMIT 1",
-            (vec_blob,)
+            "SELECT rowid, distance FROM vec_facts WHERE embedding MATCH ? AND k = ? ORDER BY distance ASC",
+            (vec_blob, 1)
         ).fetchone()
         
         if not row:
