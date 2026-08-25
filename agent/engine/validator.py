@@ -155,7 +155,7 @@ class SkillValidator:
                     # check if daemon is running
                     proc = subprocess.run(["docker", "info"], capture_output=True, timeout=2)
                     if proc.returncode == 0:
-                        return ["docker", "run", "--rm", "--network", "none", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
+                        return ["docker", "run", "--rm", "--network", "none", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
                 except Exception:
                     pass
             return [sys.executable] + list(args)
@@ -282,7 +282,7 @@ except Exception as e:
                     try:
                         proc = subprocess.run(["docker", "info"], capture_output=True, timeout=2)
                         if proc.returncode == 0:
-                            return ["docker", "run", "--rm", "--network", "none", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
+                            return ["docker", "run", "--rm", "--network", "none", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
                     except Exception:
                         pass
                 return [sys.executable] + list(args)
@@ -363,7 +363,7 @@ except Exception as e:
                     try:
                         proc = subprocess.run(["docker", "info"], capture_output=True, timeout=2)
                         if proc.returncode == 0:
-                            return ["docker", "run", "--rm", "--network", "none", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
+                            return ["docker", "run", "--rm", "--network", "none", "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{tmpdir}:/sandbox", "-w", "/sandbox", "python:3.12-slim", "python"] + list(args)
                     except Exception:
                         pass
                 return [sys.executable] + list(args)
