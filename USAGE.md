@@ -1,3 +1,8 @@
+
+Status: Pre-alpha
+Core validation: partial
+Experimental features: not production-ready
+
 # Usage Guide
 
 > Practical guide for first-time users of Solaris Zarya Engine.
