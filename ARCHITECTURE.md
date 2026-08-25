@@ -1745,7 +1745,7 @@ Semantic memory stores two primary, complementary knowledge structures:
 - **Agent**: Displays updated competence matrix, recent autonomous actions, and active goals.
 
 ### Phase G: Project-Aware Collaboration (Tier 4 Project Memory + Supervised Goals)
-- **User**: `"project index E:\MyUnityGame"` then *"Where is player movement handled in my Unity project?"*
+- **User**: `"project index /path/to/your/project"` then *"Where is player movement handled in my Unity project?"*
 - **Agent**: `[Perceive]` Cross-tier retrieval searches `project_files` (path/keyword FTS5 + semantic summary) alongside Unity-API facts in `semantic.db`.
   `"Player movement is handled in Assets/Scripts/PlayerController.cs (role: player controller MonoBehaviour, 214 lines). It reads Input.GetAxis('Horizontal'/'Vertical') and applies transform.Translate in Update(). I also have a fact on Unity's CharacterController.Move for collision-safe movement if you want to switch to it."`
 - **User**: `"learn about Unity serialization for a save system"` (supervised task).

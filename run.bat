@@ -1,3 +1,3 @@
 @echo off
-cd /d "E:\AI double"
+cd /d "%~dp0"
 python -m agent.main

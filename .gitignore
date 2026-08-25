@@ -10,17 +10,38 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+*.egg-info/
+dist/
+build/
 
 # --- Dynamic Data & Local Databases ---
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.jsonl
+!data/datasets/
 data/active_task.json
+data/active_*.json
 data/ingest_cache/
 data/models/
 data/calibration.json
 data/.state_manifest.json
 data/sandbox_manifest.json
+data/checkpoints/
+data/knowledge/
+data/self_model*.json
+data/state_manifest.json
+data/last_synthesis_debug.log
+
+# --- Test & Coverage Reports ---
+*.txt
+*.log
+
+# --- Local Notes & Scripts ---
+phase4_ready.md
+summary.md
+probe_bench.py
+threshold_sweep.py
 
 # --- OS & IDE Configs ---
 .vscode/

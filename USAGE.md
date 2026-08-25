@@ -173,7 +173,7 @@ project index .
 Scans the current directory, computes SHA-256 hashes, generates summaries, and embeds files into Project Memory. Only changed files are re-processed on subsequent runs.
 
 ```
-project index E:\my_project
+project index /path/to/your/project
 ```
 
 Index a specific path.
