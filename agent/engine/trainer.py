@@ -274,15 +274,24 @@ class ModelTrainer:
         
         dataset = load_dataset("json", data_files=str(dataset_path), split="train")
         
+        try:
+            import bitsandbytes
+            optim_type = "paged_adamw_8bit"
+        except ImportError:
+            optim_type = "adamw_torch"
+            logger.warning("bitsandbytes not found, falling back to adamw_torch. This may cause OOM on 8GB GPUs.")
+
         training_args = TrainingArguments(
             output_dir=str(output_dir),
             per_device_train_batch_size=batch_size,
             num_train_epochs=epochs,
             gradient_accumulation_steps=4,
-            optim="paged_adamw_32bit",
+            optim=optim_type,
             logging_steps=10,
             save_steps=100,
             remove_unused_columns=False,
+            gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False}
         )
         
         trainer = DPOTrainer(

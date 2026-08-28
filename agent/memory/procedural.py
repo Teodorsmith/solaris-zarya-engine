@@ -45,6 +45,8 @@ class ProceduralMemory:
                 description TEXT NOT NULL,
                 file_path TEXT,
                 verification_tier TEXT NOT NULL DEFAULT 'mock',
+                runtime TEXT NOT NULL DEFAULT 'python',
+                language TEXT NOT NULL DEFAULT 'python',
                 success_count INTEGER NOT NULL DEFAULT 0,
                 fail_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
@@ -59,13 +61,16 @@ class ProceduralMemory:
             """
             INSERT INTO skills (
                 name, description, file_path, verification_tier,
+                runtime, language,
                 success_count, fail_count, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description = excluded.description,
                 file_path = excluded.file_path,
                 verification_tier = excluded.verification_tier,
+                runtime = excluded.runtime,
+                language = excluded.language,
                 success_count = excluded.success_count,
                 fail_count = excluded.fail_count,
                 created_at = excluded.created_at
@@ -75,6 +80,8 @@ class ProceduralMemory:
                 skill.description,
                 skill.file_path,
                 skill.verification_tier,
+                skill.runtime,
+                skill.language,
                 skill.success_count,
                 skill.fail_count,
                 skill.created_at,
@@ -104,6 +111,8 @@ class ProceduralMemory:
             description=description,
             file_path=file_path,
             verification_tier=verification_tier,
+            runtime="python",
+            language="python",
             created_at=created_at or datetime.now(timezone.utc).isoformat(),
         )
         return self.register(skill)
@@ -134,6 +143,8 @@ class ProceduralMemory:
             description=row["description"],
             file_path=row["file_path"],
             verification_tier=row["verification_tier"],
+            runtime=row["runtime"],
+            language=row["language"],
             success_count=row["success_count"],
             fail_count=row["fail_count"],
             created_at=row["created_at"],

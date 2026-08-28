@@ -46,6 +46,34 @@ class UnityMCPClient:
             )
             
         self.daemon_port = daemon_port or UNITY_DAEMON_PORT
+        self.verify_project_version()
+
+    def verify_project_version(self) -> None:
+        """Parses ProjectSettings/ProjectVersion.txt and compares with Unity executable."""
+        pv_txt = self.project_path / "ProjectSettings" / "ProjectVersion.txt"
+        if not pv_txt.exists():
+            return
+            
+        content = pv_txt.read_text(encoding="utf-8")
+        m = re.search(r"m_EditorVersion:\s*([0-9]+\.[0-9]+)", content)
+        if not m:
+            return
+            
+        expected_major_minor = m.group(1)
+        exe_name = self.unity_path.name
+        
+        # We can also attempt to read the actual executable version on Windows
+        # For now, we extract version from the path if available, e.g., "2022.3.15f1/Editor/Unity.exe"
+        exe_path_str = str(self.unity_path)
+        m_exe = re.search(r"([0-9]+\.[0-9]+)", exe_path_str)
+        if m_exe:
+            actual_major_minor = m_exe.group(1)
+            if expected_major_minor != actual_major_minor:
+                raise RuntimeError(
+                    f"Unity version mismatch! Project expects {expected_major_minor}.* "
+                    f"but configured UNITY_EXE is {actual_major_minor}.*. "
+                    "Aborting to prevent silent project re-serialization."
+                )
 
     def run_tests(
         self, test_platform: str = "EditMode", timeout: float = 120.0

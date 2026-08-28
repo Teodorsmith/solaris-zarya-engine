@@ -272,7 +272,37 @@ dataset clear
 
 Deletes the DPO dataset file after confirmation.
 
-### Fine-Tuning
+### Game Engine & Asset Tools
+
+The engine integrates with Unity (via the official Unity CLI / `com.unity.pipeline` with legacy batchmode fallback) and Blender for game development workflows.
+
+```
+unity-synth "Create a PlayerHealth component with TakeDamage and Heal methods"
+```
+
+Autonomously synthesizes a Unity C# script inside an isolated Git staging worktree (`data/sandboxes/worktrees/`). Validates it against security rules (blocking banned namespaces and auto-executing attributes), runs tests headlessly via the Unity CLI (or batchmode), iteratively fixes compile/test errors, and pauses at the Governor Tier 2 gate (`[Y/n]`) before merging into your main workspace.
+
+```
+blender-synth "Create a low-poly tree model and export as fbx"
+```
+
+Synthesizes a Blender Python (`bpy`) automation script with AST and path-sandboxed file writes. Executes headlessly to generate 3D assets into `data/exports/` and requests Tier 2 approval before staging into Unity `Assets/`.
+
+### Multi-Step Tasks
+
+```
+task plan Research Docker CLI, extract facts, and synthesize a container inspect tool
+```
+
+Decomposes a complex objective into a Directed Acyclic Goal Graph (DAG) with prerequisites and safety tier annotations.
+
+```
+task run
+```
+
+Executes the active planned task DAG step by step through the crash-resilient Task FSM. Each transition persists state to disk for atomic rollback or crash resumption.
+
+### Fine-Tuning & Model Promotion
 
 ```
 train list
@@ -284,29 +314,19 @@ Shows available LoRA checkpoints with status and source dataset.
 train dpo --epochs 3 --batch-size 4
 ```
 
-Runs real 4-bit NF4 QLoRA DPO training on CUDA. Automatically falls back to fp16 on Windows if bfloat16 is unsupported. Requires GPU and ML dependencies (`trl`, `peft`, `transformers`).
+Runs real 4-bit NF4 QLoRA DPO training on CUDA. Automatically falls back to fp16 on Windows if bfloat16 is unsupported.
+
+```
+train promote <checkpoint_dir_name>
+```
+
+Marks an evaluated, benchmark-passing LoRA checkpoint as promoted, allowing `MoABrain` (`moa_router`) to immediately hot-swap it for complex reasoning tasks.
 
 ```
 train dpo --dry-run
 ```
 
 Previews the training run without downloading models or using GPU.
-
-### Game Engine & Asset Tools
-
-The engine integrates with Unity and Blender via MCP bridges for game development workflows.
-
-```
-task Synthesize a low-poly sci-fi crate in Blender and export to glTF
-```
-
-Uses `BlenderMCPClient` to run headless Blender scripts (`blender --background --python`). Generates procedural 3D meshes, assigns materials, and exports to FBX/glTF. Requires `BLENDER_EXE` in `.env` or `blender` on PATH.
-
-```
-task Synthesize a Unity PlayerController with Roslyn compilation and Git smoke test
-```
-
-Uses `CSharpSynthesizer` to generate C# scripts, validate them through Unity's Roslyn compiler, run headless Unity Test Runner, and branch via `VCSManager`. Requires `UNITY_EXE` and `UNITY_PROJECT_PATH` in `.env`.
 
 ### Metacognitive Tools
 

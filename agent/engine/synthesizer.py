@@ -129,9 +129,10 @@ Context:
 {context}
 
 CRITICAL SECURITY & AST RULES:
-1. Built-in `open()` is STRICTLY FORBIDDEN.
-   - For reading: `pathlib.Path(path).read_bytes()` or `.read_text(...)`.
-   - For writing: `pathlib.Path(path).write_bytes(...)` or `.write_text(...)`.
+1. Built-in standalone `open(...)` is FORBIDDEN.
+   - For file operations, always use `pathlib.Path`:
+     - Whole file: `pathlib.Path(path).read_bytes()` / `.read_text()` or `.write_bytes()` / `.write_text()`
+     - Streams / chunked reading: `with pathlib.Path(path).open("rb") as f:`
 2. Allowed imports: `pathlib`, `json`, `re`, `math`, `hashlib`, `typing`,
    `dataclasses`, `datetime`, `enum`, `collections`, `functools`, `unittest`.
 3. FORBIDDEN patterns (AST validator will REJECT):
@@ -614,6 +615,210 @@ CRITICAL SECURITY & AST RULES:
             f"retries. Last error: {error_feedback}"
         )
 
+    @classmethod
+    def _validate_csharp_security(cls, code: str) -> None:
+        """Static pre-flight check for dangerous C# constructs."""
+        banned_namespaces = [
+            "System.Diagnostics",  # Blocks Process.Start
+            "System.Reflection.Emit",
+            "System.Runtime.InteropServices", # Blocks DllImport
+        ]
+        banned_attributes = [
+            "[InitializeOnLoad]",
+            "[InitializeOnLoadMethod]",
+            "[RuntimeInitializeOnLoadMethod]",
+            "[MenuItem]",
+            "[DidReloadScripts]",
+        ]
+        
+        logger.warning(
+            "C# synthesis relies on heuristic static text checking. "
+            "Unity execution remains a Trusted-Host action and requires "
+            "OS-level isolation (e.g. restricted Windows user / VM) for robust security against malicious scripts."
+        )
+        
+        for bn in banned_namespaces:
+            if f"using {bn}" in code or f"{bn}." in code:
+                raise SecurityError(f"Banned namespace used: {bn}")
+                
+        for ba in banned_attributes:
+            if ba in code:
+                raise SecurityError(f"Banned attribute used: {ba}")
+                
+        if "DllImport" in code:
+            raise SecurityError("DllImport is strictly forbidden.")
+
+    def synthesize_csharp_script(
+        self, topic: str, context: str, unity_client, staging_path: Path
+    ) -> Skill:
+        """Synthesizes a C# script for Unity, tests it headless, and repairs errors."""
+        prompt = f"""
+You are an expert Unity C# developer.
+Write a standalone, self-contained Unity C# script.
+Topic: {topic}
+Context:
+{context}
+
+CRITICAL RULES:
+1. The script must compile correctly in Unity.
+2. DO NOT use System.Diagnostics.Process, DllImport, or Editor auto-executing attributes like [InitializeOnLoad] or [MenuItem].
+3. Include NUnit tests inside the same script file using #if UNITY_INCLUDE_TESTS if you want, but ensure the core logic is clean.
+4. Output ONLY a valid JSON object with keys 'skill_name', 'description', 'code'. 'code' should contain the C# source.
+"""
+        history = []
+        error_feedback = None
+        
+        for attempt in range(1, self.max_retries + 1):
+            current_prompt = prompt
+            if error_feedback:
+                current_prompt += f"\nYour previous attempt failed:\n{error_feedback}\nPlease fix the C# code."
+
+            response = self.brain.generate(current_prompt, json_mode=True)
+            payload = self.brain.extract_json(response)
+            
+            if not isinstance(payload, dict) or "code" not in payload:
+                error_feedback = "Response was not a valid JSON object with a 'code' key."
+                continue
+                
+            skill_name = payload.get("skill_name", self._slugify_topic(topic))
+            description = payload.get("description", "")
+            code = payload["code"]
+            
+            try:
+                self._validate_csharp_security(code)
+            except SecurityError as e:
+                error_feedback = f"SECURITY_ERROR: {e}"
+                continue
+                
+            # Write to staging path
+            script_path = staging_path / f"{skill_name}.cs"
+            script_path.write_text(code, encoding="utf-8")
+            
+            # Run headless tests via Unity MCP
+            test_results = unity_client.run_tests(test_platform="EditMode")
+            
+            if test_results["status"] == "success":
+                # Save to procedural memory
+                skill = Skill(
+                    name=skill_name,
+                    description=description,
+                    file_path=str(script_path),
+                    verification_tier="mock",
+                    runtime="unity_cs",
+                    language="csharp",
+                    success_count=1,
+                    fail_count=0,
+                )
+                self.procedural.register(skill)
+                logger.info(f"Successfully synthesized C# skill '{skill_name}'")
+                return skill
+                
+            # Parse tagged union feedback
+            if test_results.get("status") == "error":
+                err_msg = test_results.get("error", "Unknown error")
+                if isinstance(test_results.get("test_results"), dict) and test_results["test_results"].get("error"):
+                    err_msg += f"\n{test_results['test_results']['error']}"
+                error_feedback = f"UNITY_RUNTIME_ERROR: {err_msg}"
+            elif test_results.get("compiler_errors"):
+                errs = test_results["compiler_errors"]
+                error_feedback = "COMPILE_ERROR:\n" + "\n".join(
+                    f"{e['file']}:{e['line']} {e['code']}: {e.get('message', '')}" for e in errs
+                )
+            else:
+                failures = test_results.get("test_results", {}).get("failures", [])
+                error_feedback = "TEST_FAILURE:\n" + "\n".join(
+                    f"{f['name']}: {f['message']}\n{f.get('stack_trace', '')}" for f in failures
+                )
+                if not failures:
+                    error_feedback += " (No specific failures found. Check Unity logs for compilation or runtime issues)."
+                
+            logger.warning(f"C# Synthesis attempt {attempt} failed: {error_feedback}")
+            
+        raise SynthesizerError(f"Failed to synthesize C# skill after {self.max_retries} retries.")
+
+    def synthesize_blender_script(
+        self, topic: str, context: str, blender_client, export_dir: Path
+    ) -> Skill:
+        """Synthesizes a Blender Python script, validates AST, and tests execution."""
+        prompt = f"""
+You are an expert Blender Python (bpy) developer.
+Write a standalone, self-contained Python script to automate a Blender task.
+Topic: {topic}
+Context:
+{context}
+
+CRITICAL RULES:
+1. You may import bpy, bmesh, mathutils, math.
+2. DO NOT use os, subprocess, sys, or built-in open().
+3. All file exports (like bpy.ops.export_scene.fbx) MUST strictly target the directory: {export_dir}
+4. Output ONLY a valid JSON object with keys 'skill_name', 'description', 'code'. 'code' should contain the Python source.
+"""
+        history = []
+        error_feedback = None
+        
+        for attempt in range(1, self.max_retries + 1):
+            current_prompt = prompt
+            if error_feedback:
+                current_prompt += f"\nYour previous attempt failed:\n{error_feedback}\nPlease fix the Python code."
+
+            response = self.brain.generate(current_prompt, json_mode=True)
+            payload = self.brain.extract_json(response)
+            
+            if not isinstance(payload, dict) or "code" not in payload:
+                error_feedback = "Response was not a valid JSON object with a 'code' key."
+                continue
+                
+            skill_name = payload.get("skill_name", self._slugify_topic(topic))
+            description = payload.get("description", "")
+            code = payload["code"]
+            
+            # Security AST check
+            try:
+                blender_client.validate_ast(code, export_dir=export_dir)
+            except Exception as e:
+                error_feedback = f"AST_SECURITY_ERROR: {e}"
+                continue
+                
+            # Write to temporary script
+            import tempfile
+            with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+                f.write(code)
+                script_path = f.name
+                
+            # Run headless
+            try:
+                result = blender_client.run_script(Path(script_path), export_dir=export_dir)
+                if result.get("status") == "success":
+                    skill = Skill(
+                        name=skill_name,
+                        description=description,
+                        file_path=script_path,
+                        verification_tier="mock",
+                        runtime="blender_py",
+                        language="python",
+                        success_count=1,
+                        fail_count=0,
+                    )
+                    self.procedural.register(skill)
+                    logger.info(f"Successfully synthesized Blender skill '{skill_name}'")
+                    return skill
+                else:
+                    err = result.get('error', 'Unknown error')
+                    stdout = result.get('stdout', '')
+                    stderr = result.get('stderr', '')
+                    error_feedback = f"BLENDER_RUNTIME_ERROR:\n{err}"
+                    if stderr:
+                        error_feedback += f"\nStderr:\n{stderr[-1500:]}"
+                    if stdout:
+                        error_feedback += f"\nStdout:\n{stdout[-1500:]}"
+            except Exception as e:
+                error_feedback = f"BLENDER_EXECUTION_FAILED: {e}"
+                
+            logger.warning(f"Blender Synthesis attempt {attempt} failed: {error_feedback}")
+            
+        raise SynthesizerError(f"Failed to synthesize Blender skill after {self.max_retries} retries.")
+
+
 
 class KnowledgeSynthesizer:
     def __init__(self, brain: BaseBrain, semantic: "SemanticMemory"):
@@ -656,9 +861,10 @@ Text:
                             datetime.datetime.now(timezone.utc).isoformat()
                         ),
                     )
-                    created, returned_fact = self.semantic.add_fact(fact)
+                    created, fact_id = self.semantic.add_fact(fact)
                     if created:
-                        added_facts.append(returned_fact)
+                        fact.id = fact_id
+                        added_facts.append(fact)
 
         # 2. Extract Passages
         prompt_passages = f"""

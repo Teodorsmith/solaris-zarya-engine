@@ -53,7 +53,23 @@ Development proceeds along an incremental, verifiable ladder where each phase so
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │ Phase 6: Evolutionary Loop & Model Fine-Tuning (MoA / DPO Pipeline)    │
 │ (Mixture-of-Agents Router, Novelty/Entropy Filter, DPO Dataset Builder)│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼────────────────────────────────────┐
+│ Autonomous Worker: "OpenWorker" Parity & Headless Automation           │
+│ (Playwright Web Agent + FastAPI Webhooks + Async Persistent Daemon)    │
 └────────────────────────────────────────────────────────────────────────┘
+```
+
+### The Evolution Roadmap
+```
+[ Solaris Zarya v0.1.0 ]  (CLI + Sandbox + SQLite-vec + DPO)
+          │
+          ▼
+[ Phase 5 & 6 ]          (Unity/Blender Toolchain + LoRA Hot-Swapping)
+          │
+          ▼
+[ Autonomous Worker ]    (Playwright Web Agent + FastAPI Webhooks + Web Workspace)
 ```
 
 ---
@@ -218,7 +234,7 @@ Expand the system with proactive self-maintenance and true reasoning improvement
 ## Phase 5: Domain Validation & Engine Integration (Unity / Blender MCP)
 
 ### Objective
-Stress-test the agent in a complex external domain by connecting it to the game development workflow via Unity and Blender MCP servers. Validate that the agent's core memory, planning, and revision loops enable it to autonomously author C# scripts, inspect scene hierarchies, create/export 3D assets, and pass headless test suites.
+Stress-test the agent in a complex external domain by connecting it to the game development workflow via Unity and Blender. Validate that the agent's core memory, planning, and revision loops enable it to autonomously author C# scripts, inspect scene hierarchies, create/export 3D assets, and pass headless test suites.
 
 ```
                   ┌───────────────────────────────────────────────┐
@@ -228,55 +244,73 @@ Stress-test the agent in a complex external domain by connecting it to the game 
                   ┌───────────────────────┴───────────────────────┐
                   ▼                                               ▼
      ┌─────────────────────────┐                     ┌─────────────────────────┐
-     │ Unity MCP Server        │                     │ Blender MCP Server      │
-     │ - Read/write C# scripts │                     │ - Create/import assets  │
-     │ - Inspect scenes/prefabs│                     │ - Headless scripts (.py)│
-     │ - Run Unity Test Runner │                     │ - Export FBX/glTF       │
+     │ Official Unity CLI      │                     │ Blender MCP Client      │
+     │ + com.unity.pipeline    │                     │ - Create/import assets  │
+     │ - eval C# in live editor│                     │ - Headless scripts (.py)│
+     │ - run tests (JSON out)  │                     │ - Export FBX/glTF       │
+     │ - recompile / play mode │                     │ - Sandboxed file writes │
      └────────────┬────────────┘                     └────────────┬────────────┘
                   │                                               │
                   └───────────────────────┬───────────────────────┘
                                           ▼
                   ┌───────────────────────────────────────────────┐
-                  │ Headless Unity Compile & Play Smoke Tests     │
-                  │ (Unity.exe -runTests -testPlatform EditMode)  │
+                  │ Git Worktree Isolation (data/sandboxes/)      │
+                  │ + Governor Tier-2 HITL Gate ([Y/n])           │
                   └───────────────────────┬───────────────────────┘
                                           ▼
                   ┌───────────────────────────────────────────────┐
-                  │ Git Branch Isolation (ai-feat/*) & Regression │
+                  │ Merge into Main Workspace (approved only)     │
                   └───────────────────────────────────────────────┘
 ```
 
 ### Scope & Files to Implement
-- `agent/integrations/unity_mcp.py`:
-  - Unity MCP client connecting to Unity Editor bridge daemon.
-  - Scene and prefab introspection (GameObjects, components, serialized properties, layer masks).
-  - C# script authoring, patching, and Unity Roslyn compiler error feedback (`CS0246`, `CS1061`; Mitigation #36).
-  - Headless test execution runner (`Unity.exe -runTests -testPlatform EditMode/PlayMode -testResults results.xml`).
+- `agent/integrations/unity_cli.py` **(PRIMARY — Official Unity CLI)**:
+  - Wraps the standalone `unity` CLI binary (installed separately) and the `com.unity.pipeline` editor package.
+  - Structured JSON output via `--json --non-interactive` flags on all calls.
+  - `run_tests()` — deterministic NUnit test execution with structured pass/fail/compiler error JSON.
+  - `eval_csharp()` — execute C# directly inside a running Unity Editor, no domain reload required.
+  - `get_status()` — query connected editor PID, project path, and readiness.
+  - `recompile()` — trigger editor script recompilation.
+  - `install_pipeline()` — convenience method to add `com.unity.pipeline` to a project.
+  - Graceful `UnityCLINotFoundError` when CLI binary is not on PATH.
+- `agent/integrations/unity_mcp.py` **(LEGACY FALLBACK — Batchmode)**:
+  - Retained for environments without the official CLI (e.g. Unity versions before 6.x).
+  - Legacy headless `-batchmode -runTests` with NUnit XML parsing and Roslyn log regex.
+  - `domain_synth.py` auto-detects and prefers CLI → falls back to legacy.
 - `agent/integrations/blender_mcp.py`:
   - Headless Blender execution bridge (`blender --background --python <script>`).
-  - Procedural 3D mesh generator, material assignment, UV unwrapping, and automated export (FBX / glTF) into Unity `Assets/` folders.
-  - Asset sanity checks (vertex count, scale normalization, `.meta` file integrity).
+  - AST-validated security sandbox blocking `os`, `sys`, `subprocess`, reflection attributes.
+  - Runtime sandbox preamble: monkey-patches `open()` and Blender export operators to enforce path allowlist.
+  - Procedural 3D mesh generation and automated export (FBX / glTF) to designated `data/exports/` directory.
 - `agent/engine/synthesizer.py` (C# Multi-Runtime Extension):
-  - Specialized templates for Unity `MonoBehaviour`, `ScriptableObject`, State Machines, and Editor Scripts.
-  - 2-retry revision loop against real Unity Roslyn compiler errors and Test Runner output.
+  - Heuristic C# security pre-flight check (banned namespaces, attributes, `DllImport`).
+  - 2-retry revision loop against structured test/compiler error feedback from Unity CLI (or legacy XML).
+  - Unity execution acknowledged as **Trusted-Host action** requiring OS-level isolation for robust security.
 - `agent/engine/vcs_manager.py`:
+  - `create_staging_worktree()` — isolated Git worktree under `data/sandboxes/worktrees/`.
+  - `cleanup_worktree()` — teardown with optional branch deletion.
   - Automated task branching (`git checkout -b ai-feat/<task-name>`).
-  - Runs regression smoke tests in headless Unity before staging commits.
+- `agent/commands/domain_synth.py`:
+  - `unity-synth` and `blender-synth` CLI commands with full FSM lifecycle.
+  - Auto-detection: prefers `UnityCLIClient` → falls back to `UnityMCPClient`.
+  - Governor Tier-2 gate before merge/export.
 
 ### Key Safeguards Enforced
-- **Mitigation #36**: Multi-runtime synthesis & error feedback loop (`dotnet` / Unity C# compiler feedback).
+- **Mitigation #36**: Multi-runtime synthesis & error feedback loop (Unity CLI JSON / Roslyn compiler feedback).
 - **Mitigation #46 & #50**: Project Memory write-protection and Tier-2 HITL approval before writing to host Unity assets or committing changes.
-- **Mitigation #49**: Deterministic task execution with atomic rollback if Unity compilation fails or UTF test suite breaks.
+- **Mitigation #49**: Deterministic task execution with atomic rollback if Unity compilation fails or test suite breaks.
+- **Trusted-Host Security**: Unity execution (both CLI eval and batchmode) runs with full user privileges. OS-level isolation (restricted user account / VM) recommended for fully autonomous operation.
 
 ### Concrete Proof Milestone (Exit Gate)
-1. Connect agent to local Unity project and Blender.
+1. Connect agent to local Unity project (with `com.unity.pipeline` installed) and Blender.
 2. Dispatch domain task: `"Add a HealthComponent with unit tests and a simple low-poly potion bottle model"`.
 3. Agent:
    - Synthesizes `HealthComponent.cs` and `HealthComponentTests.cs`.
-   - Runs headless Blender script to generate and export `potion_bottle.fbx` into `Assets/Models/`.
-   - Triggers Unity Test Runner in headless EditMode; captures test results XML $\to$ all pass.
+   - Runs headless Blender script to generate and export `potion_bottle.fbx` into `data/exports/`.
+   - Triggers Unity Test Runner via CLI (`unity test --json`); captures structured results → all pass.
+   - Prompts user with `[Y/n]` Tier-2 gate before merging worktree into main workspace.
    - Summarizes changes and stages git commit on feature branch `ai-feat/health-component`.
-4. Run integration tests: `pytest tests/test_game_engine_integration.py` $\to$ All pass.
+4. Run integration tests: `pytest tests/test_game_engine_integration.py` → All 20 pass.
 
 ---
 
@@ -303,48 +337,93 @@ Close the evolutionary loop: deploy the Mixture-of-Agents (MoA) router for LoRA 
 
 ---
 
-## Backlog
-
-Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double/ARCHITECTURE.md) and represents long-term engineering depth — pull an item into an active phase only when real build constraints force the issue:
-
-- ~~**OS-Level Containment**: Full Docker sealed sandbox with read-only rootfs and strict process constraints (Mitigations #38, #57–#60).~~ ✅ **Implemented** (DockerSandboxRunner with AST pre-flight checks).
-- ~~**Advanced Retrieval**: Hybrid Reciprocal Rank Fusion (dense ONNX + BM25 FTS5), calibrated confidence thresholds via labeled evaluation set (`calibration/queries.json`; Mitigations #30, #37, #53).~~ ✅ **Implemented**
-- ~~**Autonomous Deep Research & Academic Ingestion**: Structured paper search (arXiv API, Semantic Scholar Graph, CrossRef, Google Scholar), PDF section chunking (`pypdf`/`pymupdf`), bounded DAG research pipelines (max breadth/depth caps), and auto-indexing of synthesized research artifacts into Project Memory (Section 9.1).~~ ✅ **Implemented**
-- ~~**Web Ingestion Resiliency**: Multi-provider fetch chain with quota interception and abort guard (Mitigations #4, #5, #27, #39).~~ ✅ **Implemented** (Added curriculum checkpointing, failovers, and markdown exporting).
-- ~~**Arbitrary Provider Registry**: Dynamic user-editable `brains.json` supporting custom local/cloud OpenAI-compatible endpoints (Mitigation #56).~~ ✅ **Implemented** (Added `BrainManager` multi-tier failovers).
-
----
-
-## Engineering Velocity & Key Pitfalls
-
-### Remaining Implementation Effort
-Completing Phases 5 and 6 represents significant research and systems engineering depth. Realistic development estimates across these phases:
-
-- **Phase 5: Domain Validation & Engine Integration (Unity / Blender MCP)**: **8 to 12 weeks**
-  - Unity MCP bridge daemon for C# Roslyn compilation, scene introspection, and headless UTF test runner.
-  - Blender headless MCP bridge for procedural 3D mesh synthesis, material assignment, and FBX/glTF asset export.
-  - Multi-runtime synthesizer extensions and automated git feature branching.
-- **Phase 6: Evolutionary Loop & Model Fine-Tuning (MoA / DPO Pipeline)**: **10 to 14 weeks**
-  - Mixture-of-Agents router separating intrinsic complexity from novelty.
-  - Automated Novelty & Entropy filtering pipeline formatting episodes into DPO pairs.
-  - Fine-tuning coordinator with benchmark promotion and automatic checkpoint rollback gates.
-
-### Main Pitfalls to Guard Against
-1. **Token Bloat in Web/PDF Scraping**: Ingesting entire 20-page arXiv PDFs directly into LLM prompts will blow through context windows and slow down local models. Ensure your parser chunks papers into abstracts, key sections, and embeddings before passing them to the brain.
-2. **Sandbox Timeout & Security**: When allowing the agent to run Python code dynamically (Tier 1), always enforce strict execution timeouts (e.g., max 10 seconds) and restrict subprocess network/filesystem permissions.
-3. **Prompt Drift in Smaller Models**: Local 7B/8B models can wander during long tool chains. Keep your tool definitions, schemas, and prompts compact, modular, and concise.
-
----
-
-## Build Execution Matrix
-
-
-| Phase | Milestone Name | Primary Test Target | Status |
-| :--- | :--- | :--- | :--- |
-| Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed** |
-| **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | ✅ **Completed** |
-| **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py`, `tests/test_docker_sandbox.py` | ✅ **Completed** |
-| **Phase 3** | **Supervised Planning, Goal DAG & Task FSM REPL** | `tests/test_goals.py`, `tests/test_state_machine.py`, `tests/test_governor.py`, `tests/test_task_planner.py` | ✅ **Completed** |
-| **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py`, `tests/test_academic.py`, `tests/test_rrf_calibration.py` | ✅ **Completed** |
-| **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | 🟡 **Active Build Target (8–12 wks)** |
-| **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py`, `tests/test_trainer_execution.py` | 🟡 **In Progress (MoA / QLoRA implemented)** |
+319: 
+320: ---
+321: 
+322: ## Next Horizon: 3 Key Additions to Reach "OpenWorker" Parity
+323: 
+324: ### Objective
+325: Evolve the engine from an interactive terminal-bound assistant into an untethered, event-driven autonomous worker capable of browser automation, multi-day background task persistence, and external webhook-driven execution.
+326: 
+327: ```
+328:                   ┌───────────────────────────────────────────────┐
+329:                   │ Autonomous Worker: "OpenWorker" Architecture  │
+330:                   └───────────────────────┬───────────────────────┘
+331:                                           │
+332:         ┌─────────────────────────────────┼─────────────────────────────────┐
+333:         ▼                                 ▼                                 ▼
+334: ┌───────────────────────────┐ ┌───────────────────────────┐ ┌───────────────────────────┐
+335: │ 1. Headless Browser / MCP │ │ 2. Asynchronous Job Queue │ │ 3. Webhook & Integration  │
+336: │ - Playwright Web Agent    │ │ - Multi-Day Persistence   │ │ - FastAPI / Starlette Hub │
+337: │ - DOM / Form Automation   │ │ - Reboot-Proof Task FSM   │ │ - GitHub/Discord Triggers │
+338: │ - Authenticated Dashboards│ │ - Unattended Execution    │ │ - Scheduled Daily Jobs    │
+339: └───────────────────────────┘ └───────────────────────────┘ └───────────────────────────┘
+340: ```
+341: 
+342: ### 1. Headless Browser & Computer Automation (Playwright / MCP)
+343: OpenWorker agents spend much of their runtime interacting with web applications, scraping authenticated dashboards, filling forms, and reading documentation.
+344: - **Scope & Implementation**: Implement a `BrowserTool` using Playwright or connect a standard Model Context Protocol (MCP) browser server into `agent/engine/` and `agent/integrations/browser_mcp.py`.
+345: - **Capabilities**: Headless navigation, DOM snapshot inspection, session cookie persistence, authenticated dashboard interaction, and visual screenshot reasoning.
+346: 
+347: ### 2. Asynchronous Job Queue & Multi-Day Persistence
+348: OpenWorker operates in the background: a user submits a complex prompt ("Research competitors, draft a report, and open a PR with the benchmark code") and closes their laptop.
+349: - **Scope & Implementation**: Wrap the Task FSM (`agent/engine/state_machine.py`) in an asynchronous background worker daemon (`agent/engine/worker.py`) that persists task state across machine reboots, allowing the agent to run unattended for hours or days.
+350: - **Capabilities**: SQLite-backed durable job queue, checkpointed step execution, crash hydration on startup, and asynchronous progress notifications.
+351: 
+352: ### 3. Webhook & Integration Hub
+353: Enable the engine to listen for external triggers (e.g., a new GitHub Issue, a Discord slash command, or a scheduled daily trigger) rather than requiring an active terminal session.
+354: - **Scope & Implementation**: Expose a lightweight FastAPI/Starlette webhook receiver in `agent/integrations/hub.py` connecting inbound webhooks directly to the Task Planner and Heartbeat daemon.
+355: - **Capabilities**: Event-driven task dispatch (GitHub webhook `issues.opened`, Discord bot triggers, Slack webhooks, recurring cron schedules) without needing an active terminal REPL attached.
+356: 
+357: ---
+358: 
+359: ## Backlog
+360: 
+361: Everything below is fully documented in [ARCHITECTURE.md](file:///e:/AI%20double/ARCHITECTURE.md) and represents long-term engineering depth — pull an item into an active phase only when real build constraints force the issue:
+362: 
+363: - ~~**OS-Level Containment**: Full Docker sealed sandbox with read-only rootfs and strict process constraints (Mitigations #38, #57–#60).~~ ✅ **Implemented** (DockerSandboxRunner with AST pre-flight checks).
+364: - ~~**Advanced Retrieval**: Hybrid Reciprocal Rank Fusion (dense ONNX + BM25 FTS5), calibrated confidence thresholds via labeled evaluation set (`calibration/queries.json`; Mitigations #30, #37, #53).~~ ✅ **Implemented**
+365: - ~~**Autonomous Deep Research & Academic Ingestion**: Structured paper search (arXiv API, Semantic Scholar Graph, CrossRef, Google Scholar), PDF section chunking (`pypdf`/`pymupdf`), bounded DAG research pipelines (max breadth/depth caps), and auto-indexing of synthesized research artifacts into Project Memory (Section 9.1).~~ ✅ **Implemented**
+366: - ~~**Web Ingestion Resiliency**: Multi-provider fetch chain with quota interception and abort guard (Mitigations #4, #5, #27, #39).~~ ✅ **Implemented** (Added curriculum checkpointing, failovers, and markdown exporting).
+367: - ~~**Arbitrary Provider Registry**: Dynamic user-editable `brains.json` supporting custom local/cloud OpenAI-compatible endpoints (Mitigation #56).~~ ✅ **Implemented** (Added `BrainManager` multi-tier failovers).
+368: 
+369: ---
+370: 
+371: ## Engineering Velocity & Key Pitfalls
+372: 
+373: ### Remaining Implementation Effort
+374: Completing Phases 5 and 6 represents significant research and systems engineering depth. Realistic development estimates across these phases:
+375: 
+376: - **Phase 5: Domain Validation & Engine Integration (Unity / Blender MCP)**: **8 to 12 weeks**
+377:   - Unity MCP bridge daemon for C# Roslyn compilation, scene introspection, and headless UTF test runner.
+378:   - Blender headless MCP bridge for procedural 3D mesh synthesis, material assignment, and FBX/glTF asset export.
+379:   - Multi-runtime synthesizer extensions and automated git feature branching.
+380: - **Phase 6: Evolutionary Loop & Model Fine-Tuning (MoA / DPO Pipeline)**: **10 to 14 weeks**
+381:   - Mixture-of-Agents router separating intrinsic complexity from novelty.
+382:   - Automated Novelty & Entropy filtering pipeline formatting episodes into DPO pairs.
+383:   - Fine-tuning coordinator with benchmark promotion and automatic checkpoint rollback gates.
+384: - **Autonomous Worker: "OpenWorker" Parity**: **6 to 8 weeks**
+385:   - Playwright headless browser tool / MCP integration.
+386:   - Asynchronous persistent task worker daemon and crash-resilient queue.
+387:   - FastAPI webhook and event-dispatch integration hub.
+388: 
+389: ### Main Pitfalls to Guard Against
+390: 1. **Token Bloat in Web/PDF Scraping**: Ingesting entire 20-page arXiv PDFs directly into LLM prompts will blow through context windows and slow down local models. Ensure your parser chunks papers into abstracts, key sections, and embeddings before passing them to the brain.
+391: 2. **Sandbox Timeout & Security**: When allowing the agent to run Python code dynamically (Tier 1), always enforce strict execution timeouts (e.g., max 10 seconds) and restrict subprocess network/filesystem permissions.
+392: 3. **Prompt Drift in Smaller Models**: Local 7B/8B models can wander during long tool chains. Keep your tool definitions, schemas, and prompts compact, modular, and concise.
+393: 
+394: ---
+395: 
+396: ## Build Execution Matrix
+397: 
+398: 
+399: | Phase | Milestone Name | Primary Test Target | Status |
+400: | :--- | :--- | :--- | :--- |
+401: | Phase 0 | **Memory Core & Offline Loop** | `tests/test_memory.py`, `tests/test_retriever.py` | ✅ **Completed** |
+402: | **Phase 1** | **Real Brain + Project Memory** | `tests/test_brains.py`, `tests/test_project.py` | ✅ **Completed** |
+403: | **Phase 2** | **Real Skill Execution & Safety** | `tests/test_validator.py`, `tests/test_docker_sandbox.py` | ✅ **Completed** |
+404: | **Phase 3** | **Supervised Planning, Goal DAG & Task FSM REPL** | `tests/test_goals.py`, `tests/test_state_machine.py`, `tests/test_governor.py`, `tests/test_task_planner.py` | ✅ **Completed** |
+405: | **Phase 4** | **Autonomous Maintenance & Reasoning (V2)** | `tests/test_reasoning.py`, `tests/test_heartbeat.py`, `tests/test_academic.py`, `tests/test_rrf_calibration.py` | ✅ **Completed** |
+406: | **Phase 5** | **Domain Validation & Engine Integration** | `tests/test_game_engine_integration.py` | 🟡 **Active Build Target (8–12 wks)** |
+407: | **Phase 6** | **Evolutionary Loop & Model Fine-Tuning** | `tests/test_dataset_builder.py`, `tests/test_trainer_execution.py` | 🟡 **In Progress (MoA / QLoRA implemented)** |
+408: | **Horizon** | **Autonomous Worker (OpenWorker Parity)** | `tests/test_worker_persistence.py`, `tests/test_browser_mcp.py` | ⚪ **Planned (6–8 wks)** |

@@ -1,17 +1,9 @@
 # Copyright (C) 2026 Teodor Smith
 #
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published by
+# it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Persistent Self-Model (data/self_model.json).
 
@@ -37,7 +29,6 @@ Case C  -- main hash mismatches:
     C1 -- backup hash matches self_model_bak_hash  -> restore backup.
     C2 -- backup hash also mismatches (or backup missing)  -> reset to defaults.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -45,6 +36,8 @@ import json
 import logging
 import os
 import shutil
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -66,9 +59,9 @@ _DEFAULT_MODEL: dict[str, Any] = {
         "global_scores": {},
         "domain_deltas": {},
         "strategy_index": {
-            "novel_problem": ["counterfactual", "hypothesis_competition"],
+            "novel_problem":      ["counterfactual", "hypothesis_competition"],
             "structured_problem": ["decomposition", "causal"],
-            "debugging": ["hypothesis_competition", "discriminating_test"],
+            "debugging":          ["hypothesis_competition", "discriminating_test"],
         },
         "zpd_ceilings": {},
     },
@@ -91,8 +84,8 @@ class SelfModel:
         self,
         model_path: str | Path,
         bak_path: str | Path,
-        manifest: StateManifest,
-        episodic: EpisodicMemory,
+        manifest: "StateManifest",
+        episodic: "EpisodicMemory",
     ) -> None:
         self._path = Path(model_path)
         self._bak_path = Path(bak_path)
@@ -113,16 +106,12 @@ class SelfModel:
         if stored_hash is None:
             logger.info("SelfModel: first boot -- initialising defaults.")
             self._data = self._deep_copy_defaults()
-            self._save_and_update_hashes(
-                audit_kind="self_model_update", reason="first_boot"
-            )
+            self._save_and_update_hashes(audit_kind="self_model_update", reason="first_boot")
             return
 
         # Main file missing
         if not self._path.exists():
-            logger.warning(
-                "SelfModel: %s missing -- resetting to defaults.", self._path
-            )
+            logger.warning("SelfModel: %s missing -- resetting to defaults.", self._path)
             self._reset_to_defaults(reason="main_file_missing")
             return
 
@@ -134,9 +123,7 @@ class SelfModel:
                 self._data = json.loads(self._path.read_text(encoding="utf-8"))
                 self._ensure_schema()
             except Exception as exc:
-                logger.error(
-                    "SelfModel: failed to parse %s: %s -- resetting.", self._path, exc
-                )
+                logger.error("SelfModel: failed to parse %s: %s -- resetting.", self._path, exc)
                 self._reset_to_defaults(reason="parse_error")
             return
 
@@ -166,9 +153,7 @@ class SelfModel:
                     )
                     return
                 except Exception as exc:
-                    logger.error(
-                        "SelfModel: backup parse failed: %s -- resetting.", exc
-                    )
+                    logger.error("SelfModel: backup parse failed: %s -- resetting.", exc)
 
         # Case C2: backup also corrupted / missing
         self._log_violation(
@@ -184,65 +169,45 @@ class SelfModel:
 
     def update_zpd_ceilings(self, ceilings: dict[str, int]) -> None:
         """Update ZPD ceilings from a reasoning benchmark run (Phase 4B)."""
-        data = self.as_dict()
-        profile = data.setdefault("reasoning_profile", {})
+        profile = self._data.setdefault("reasoning_profile", {})
         existing = profile.setdefault("zpd_ceilings", {})
         existing.update(ceilings)
-        self._data = data
-        self._save_and_update_hashes(
-            audit_kind="self_model_update", reason="update_zpd_ceilings"
-        )
+        self._save_and_update_hashes(audit_kind="self_model_update", reason="update_zpd_ceilings")
 
     def update_domain_deltas(self, deltas: dict[str, dict[str, float]]) -> None:
         """Merge Bayesian posterior adjustments from weekly reflection without overwriting global priors."""
-        data = self.as_dict()
-        profile = data.setdefault("reasoning_profile", {})
+        profile = self._data.setdefault("reasoning_profile", {})
         existing = profile.setdefault("domain_deltas", {})
-
+        
         for key, metrics in deltas.items():
             new_ratio = metrics["outcome_ratio"]
             total = metrics["total"]
-
+            
             if key in existing:
                 old_ratio = existing[key].get("outcome_ratio", 0.5)
                 old_total = existing[key].get("total", 0)
                 merged_total = old_total + total
-                merged_ratio = (
-                    (old_ratio * old_total) + (new_ratio * total)
-                ) / merged_total
-                existing[key] = {
-                    "outcome_ratio": round(merged_ratio, 4),
-                    "total": merged_total,
-                }
+                merged_ratio = ((old_ratio * old_total) + (new_ratio * total)) / merged_total
+                existing[key] = {"outcome_ratio": round(merged_ratio, 4), "total": merged_total}
             else:
                 existing[key] = {"outcome_ratio": round(new_ratio, 4), "total": total}
-
-        self._data = data
-        self._save_and_update_hashes(
-            audit_kind="self_model_update", reason="update_domain_deltas"
-        )
+                
+        self._save_and_update_hashes(audit_kind="self_model_update", reason="update_domain_deltas")
 
     def increment_boot_count(self) -> None:
         """Called once during agent startup."""
         self._data["boot_count"] = self._data.get("boot_count", 0) + 1
-        self._save_and_update_hashes(
-            audit_kind="self_model_update", reason="boot_count"
-        )
+        self._save_and_update_hashes(audit_kind="self_model_update", reason="boot_count")
 
-    def update_competence(
-        self, topic: str, passed: bool, source: str = "benchmark"
-    ) -> None:
+    def update_competence(self, topic: str, passed: bool, source: str = "benchmark") -> None:
         """Update the empirical competence matrix for *topic*."""
         matrix = self._data.setdefault("empirical_competence_matrix", {})
-        entry = matrix.setdefault(
-            topic,
-            {
-                "skills_verified": 0,
-                "skills_failed": 0,
-                "pass_ratio": 0.0,
-                "confidence": 0.5,
-            },
-        )
+        entry = matrix.setdefault(topic, {
+            "skills_verified": 0,
+            "skills_failed": 0,
+            "pass_ratio": 0.0,
+            "confidence": 0.5,
+        })
         if passed:
             entry["skills_verified"] = entry.get("skills_verified", 0) + 1
         else:
@@ -315,7 +280,7 @@ class SelfModel:
 
         # 3. Compute both hashes
         main_hash = _sha256(self._path)
-        bak_hash = _sha256(self._bak_path)
+        bak_hash  = _sha256(self._bak_path)
 
         # 4. Persist hashes to manifest (preserves active_task_hash)
         self._manifest.write_manifest(
@@ -329,9 +294,7 @@ class SelfModel:
 
     def _reset_to_defaults(self, reason: str) -> None:
         self._data = self._deep_copy_defaults()
-        self._save_and_update_hashes(
-            audit_kind="self_model_update", reason=f"reset:{reason}"
-        )
+        self._save_and_update_hashes(audit_kind="self_model_update", reason=f"reset:{reason}")
 
     def _ensure_schema(self) -> None:
         """Backfill keys missing from older model files (forward migration)."""
@@ -360,7 +323,6 @@ class SelfModel:
     def _audit(self, kind: str, content: str) -> None:
         try:
             from agent.models import EpisodicLog
-
             log = EpisodicLog(
                 kind=kind,  # type: ignore[arg-type]
                 content=f"[SelfModel] {content}",
@@ -373,5 +335,4 @@ class SelfModel:
     @staticmethod
     def _deep_copy_defaults() -> dict[str, Any]:
         import copy
-
         return copy.deepcopy(_DEFAULT_MODEL)

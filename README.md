@@ -50,7 +50,7 @@ Solaris Zarya Engine is an autonomous developer agent built from first principle
 
 ---
 
-## Core Capabilities (Phases 0–4 Implemented)
+## Core Capabilities (Phases 0–5 Implemented & Phase 6 Core)
 
 ### 1. 4-Tier Persistent SQLite Memory (WAL Mode)
 - **Tier 1 — Episodic Memory (`data/episodic.db`)**: 90-day retention log recording questions, answers, refusals, task executions, and governor approvals/denials with audit traces.
@@ -78,18 +78,15 @@ Solaris Zarya Engine is an autonomous developer agent built from first principle
 - Automatic resume recovery: if interrupted or killed mid-task, restarts from disk state without repeating completed steps.
 - Deterministic tier override: file-write operations are automatically upgraded to Tier 2 regardless of LLM classification.
 
-### 5. Deterministic Permission Governor
-- Central gatekeeper for all mutations:
-  - **Tier 0**: Pure reasoning / read / search (auto-approved).
-  - **Tier 1**: Sandboxed verification (auto-approved).
-  - **Tier 2**: Filesystem writes and capability extensions (requires explicit `[Y/n]` approval).
-- Enforces depth caps (depth $\le 2$ autonomous; depth $3\text{--}4$ requiring supervisor approval; depth $> 4$ hard-denied).
-- Logs all decisions (`USER_APPROVED`, `USER_DENIED`, `AUTO_APPROVED`, `DENIED`) to `episodic.db`.
+### 5. Domain Validation & Game Engine Synthesis (Phase 5)
+- **Official Unity CLI (`com.unity.pipeline`)**: Structured JSON output for headless testing (`run_tests`), live C# evaluation (`eval_csharp`), recompilation, and status queries. Includes legacy `-batchmode` fallback for older Unity versions.
+- **Blender MCP Client**: Headless 3D procedural script execution (`bpy`) with AST + runtime path sandboxing restricting all file writes strictly to `data/exports/`.
+- **Git Staging Worktree Isolation**: Synthesizes and tests game assets in isolated branches (`data/sandboxes/worktrees/`) before prompting for Tier 2 Governor approval to merge.
 
-### 6. Autonomous Maintenance & Metacognitive Reasoning
-- **Heartbeat Daemon**: Runs autonomous background loops to verify memory, aggregate telemetry, and clean up stale data (max 3 actions/hour).
-- **Self-Model & Reasoning Memory**: Tracks the agent's performance profiles, updates difficulty ceilings via ZPD binary search, and stores `reasoning.db` traces.
-- **Failover & Resiliency**: Built-in multi-tier brain failover strategy (e.g., Gemini -> Groq -> OpenAI -> Local -> Mock) and robust web ingestion pipeline that checkpoints curriculum research and exports human-readable markdown (`data/knowledge/`).
+### 6. Metacognitive Reasoning, DPO & MoA Router (Phases 4 & 6)
+- **Heartbeat Daemon & Self-Model**: Runs autonomous background loops to verify memory, aggregate telemetry, and clean up stale data (max 3 actions/hour).
+- **Mixture-of-Agents Router (`moa_router`)**: Dynamically routes tasks between cloud base brains and local LoRA reasoning adapters based on intrinsic complexity.
+- **DPO Dataset Builder & QLoRA Fine-Tuning**: Harvests high-novelty, high-entropy reasoning episodes from `episodic.db` and coordinates 4-bit NF4 QLoRA training.
 
 ---
 
@@ -136,17 +133,27 @@ python -m agent.main
 | Command | Usage | Description |
 | :--- | :--- | :--- |
 | `ask <question>` | `ask Where is configuration handled?` | Query memory with confidence-gated refusal. |
-| `learn` | `learn` | Seed foundational knowledge into `semantic.db`. |
-| `skill <topic>` | `skill calculate fibonacci number` | Synthesize, validate, and persist a new Python skill. |
+| `learn <topic>` | `learn "Docker networking"` | Autonomous curriculum research & fact extraction. |
+| `learn resume` | `learn resume` | Resume interrupted learning checkpoint. |
+| `skill <topic>` | `skill calculate fibonacci number` | Synthesize, sandboxed-validate, and persist a Python tool. |
 | `skills` | `skills` | List all registered procedural skills. |
 | `run-skill <name> [args]` | `run-skill calculate_fibonacci_number '{"n": 10}'` | Execute a registered skill in a secure subprocess. |
-| `project index [path]` | `project index .` | Scan, hash, summarize, and embed workspace files. |
-| `project search <query>` | `project search player controller` | Search project codebase memory. |
-| `task <instruction>` | `task Create summary.md with git tips` | Plan Goal DAG and execute task through Task FSM. |
-| `brain switch <provider>` | `brain switch groq llama-3.3-70b-versatile` | Hot-swap active brain at runtime. |
-| `brain list` | `brain list` | List available providers and show active brain. |
+| `task plan <goal>` | `task plan Create summary.md with git tips` | Decompose objective into Goal DAG with prerequisites. |
+| `task run` | `task run` | Execute active planned task DAG via Task FSM. |
+| `project index [path]` | `project index .` | Scan, hash, summarize, and embed workspace files into Tier 4. |
+| `project list` | `project list` | List indexed project files and roles. |
+| `unity-synth <topic>` | `unity-synth "PlayerHealth component"` | Synthesize & test C# script inside isolated Unity worktree. |
+| `blender-synth <topic>` | `blender-synth "Low poly crate"` | Synthesize Python script & export 3D assets in Blender. |
+| `ingest-paper <id|url>` | `ingest-paper 2305.16291` | Distill academic paper into semantic memory. |
 | `facts` | `facts` | Display stored semantic facts. |
 | `stats` | `stats` | Display record counts across all memory tiers. |
+| `self-model` | `self-model` | Show competence matrix, boot count, and ZPD profile. |
+| `benchmark reasoning` | `benchmark reasoning` | Run ZPD reasoning calibration suite. |
+| `dataset stats\|build` | `dataset build --limit 50` | Build DPO pairs from verified reasoning episodes. |
+| `train dpo\|promote` | `train dpo --epochs 3` | QLoRA DPO model fine-tuning & checkpoint promotion. |
+| `brain switch <provider>` | `brain switch moa_router` | Hot-swap active brain at runtime. |
+| `brain list` | `brain list` | List available providers and show active brain. |
+| `/clear` | `/clear` | Clear conversational context. |
 
 ---
 

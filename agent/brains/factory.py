@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ def _build_local_brain(
     base_url: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    lora_adapter: str | None = None,
 ) -> BaseBrain:
     """Build an OpenAILikeBrain for local providers (Ollama, LM Studio, vLLM).
 
@@ -127,6 +129,7 @@ def _build_local_brain(
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
+        lora_adapter=lora_adapter,
     )
     logger.info(
         "Local brain ready: provider=local base_url=%s model=%s",
@@ -136,10 +139,32 @@ def _build_local_brain(
     return brain
 
 
+def _resolve_latest_promoted_lora(checkpoints_dir: Path) -> str | None:
+    """Finds the latest lora_vX directory containing a verified promotion manifest."""
+    if not checkpoints_dir.exists():
+        return None
+    valid_checkpoints = []
+    for d in checkpoints_dir.glob("lora_v*"):
+        meta_file = d / "adapter_meta.json"
+        if meta_file.exists():
+            try:
+                import json
+                with open(meta_file, "r") as f:
+                    meta = json.load(f)
+                    if meta.get("status") == "promoted":
+                        valid_checkpoints.append(d)
+            except Exception:
+                pass
+    if not valid_checkpoints:
+        return None
+    # Sort by version number / creation time
+    latest = sorted(valid_checkpoints, key=lambda p: p.stat().st_mtime)[-1]
+    return str(latest.name)
+
 def _build_moa_router_brain(embedder, **kwargs) -> BaseBrain:
     """Build a Mixture-of-Agents router combining a base brain and a LoRA reasoning brain."""
     from agent.brains.moa_router import MoABrain
-    from agent.config import MOA_ROUTING_THRESHOLD
+    from agent.config import MOA_ROUTING_THRESHOLD, DATA_DIR
 
     base_provider = os.getenv(
         "MOA_BASE_BRAIN", "gemini" if os.getenv("GEMINI_API_KEY") else "mock"
@@ -148,8 +173,17 @@ def _build_moa_router_brain(embedder, **kwargs) -> BaseBrain:
     base_brain = base_builder(embedder)
 
     lora_provider = os.getenv("MOA_LORA_BRAIN", "local")
-    lora_builder = BRAIN_BUILDERS.get(lora_provider, _build_local_brain)
-    lora_brain = lora_builder(embedder)
+    
+    adapter = _resolve_latest_promoted_lora(DATA_DIR / "checkpoints")
+    if not adapter:
+        logger.info("moa_router: No verified LoRA adapters found in checkpoints. Falling back to base_brain for complex tasks.")
+        lora_brain = base_brain
+    else:
+        lora_builder = BRAIN_BUILDERS.get(lora_provider, _build_local_brain)
+        if lora_provider == "local":
+            lora_brain = lora_builder(embedder, lora_adapter=adapter)
+        else:
+            lora_brain = lora_builder(embedder)
 
     threshold = float(
         os.getenv("MOA_ROUTING_THRESHOLD", str(MOA_ROUTING_THRESHOLD))
@@ -253,6 +287,7 @@ class BrainManager:
         base_url: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        lora_adapter: str | None = None,
     ) -> BaseBrain:
         """Switch the active brain to *provider*.
 
@@ -262,6 +297,7 @@ class BrainManager:
             base_url:    Override base URL (local only).
             temperature: Override generation temperature.
             max_tokens:  Override max output tokens.
+            lora_adapter: Specify a LoRA adapter (local only).
 
         Returns:
             The newly active brain (also stored in ``self.brain``).
@@ -286,6 +322,7 @@ class BrainManager:
                     base_url=base_url,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    lora_adapter=lora_adapter,
                 )
             elif provider == "mock":
                 new_brain = _build_mock_brain(self._embedder)

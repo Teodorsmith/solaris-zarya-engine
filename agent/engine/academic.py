@@ -303,12 +303,16 @@ class AcademicIngester:
         facts = []
         sections = re.split(r"\n##\s+", markdown_content)
         
+        source_id = meta.get("source_id", query)
+        title = meta.get("title", f"arXiv:{source_id}")
+        
         # Add abstract as first fact
         if meta.get("abstract"):
             facts.append(Fact(
-                topic="academic_paper",
-                text=f"Title: {meta['title']}\nAbstract: {meta['abstract']}",
-                source_type="web_ingestion"
+                topic=f"arxiv:{source_id}",
+                text=f"Paper: {title} (arXiv:{source_id})\nAbstract: {meta['abstract']}",
+                source_type="academic_ingestion",
+                confidence=0.9,
             ))
             
         for idx, section in enumerate(sections):
@@ -316,14 +320,11 @@ class AcademicIngester:
             if not section or len(section) < 50:
                 continue
                 
-            # Use first line as concept/title
-            lines = section.split("\n", 1)
-            concept = lines[0][:50]
-            
             facts.append(Fact(
-                topic=f"arxiv:{meta['source_id']}",
-                text=section[:4000],  # Hard limit size per fact
-                source_type="web_ingestion"
+                topic=f"arxiv:{source_id}",
+                text=f"Paper: {title} (arXiv:{source_id})\nSection: {section[:4000]}",
+                source_type="academic_ingestion",
+                confidence=0.85,
             ))
             
         return facts

@@ -62,6 +62,10 @@ class MoABrain(BaseBrain):
         self.routed_to_base = 0
         self.fallbacks = 0
 
+    def reload_lora(self, new_lora_brain: BaseBrain) -> None:
+        """Hot-swap the complex-task brain with a freshly promoted LoRA brain."""
+        self.lora_brain = new_lora_brain
+
     def estimate_complexity(
         self, prompt: str, context: dict[str, Any] | None = None
     ) -> float:

@@ -14,7 +14,7 @@
 
 > [!IMPORTANT]
 > ### IMPLEMENTATION STATUS: SUBSTRATE VS. EXTENDED HORIZONS
-> - **Active Implemented Core (Phases 0–4 & Sandbox & QLoRA)**:
+> - **Active Implemented Core (Phases 0–5 & Sandbox & QLoRA)**:
 >   - **4-Tier SQLite WAL Memory**: `episodic.db`, `semantic.db`, `procedural.db`, `projects.db`, `goals.db`.
 >   - **Hybrid Retrieval & Gate**: FastEmbed ONNX (`bge-small-en-v1.5`) dense cosine + SQLite FTS5 BM25 weighted blend with direct 0.65 / 0.80 two-threshold confidence gate and closed-world refusal.
 >   - **Skill Execution Safety**: Host-side Python AST allowlist validator (`agent/engine/validator.py`) and strict Docker OS-Level Sandbox containment.
@@ -23,10 +23,26 @@
 >   - **Brain Hot-Swapping**: `BrainManager` hot-swapping Gemini, Groq, OpenAI, Local Ollama/vLLM, and MockBrain.
 >   - **Conversational REPL**: `ChatEngine` fallback maintaining 10-turn context, persona injection, and semantic project grounding.
 >   - **Metacognitive Maintenance (Phase 4)**: Asynchronous Heartbeat daemon, `data/self_model.json`, Tier 2.5 `reasoning.db`, and academic paper ingestion.
->   - **QLoRA & MoA (Phase 6)**: Mixture-of-Agents routing separating complexity and automated `trl.DPOTrainer` fine-tuning pipeline for LoRA adapters.
-> - **Extended Target Specifications (Phases 5 & 6 Remainder)**:
->   - Unity and Blender MCP bridges and headless UTF test runner (Phase 5).
->   - Automated Dataset Builder enforcing Novelty/Entropy filters for DPO pair generation (Phase 6).
+>   - **Domain Validation & Engine Integration (Phase 5)**: Official Unity CLI (`com.unity.pipeline`) with legacy batchmode fallback, Blender MCP client with AST + path-sandboxed exports, Git staging worktrees (`data/sandboxes/worktrees/`), and multi-runtime C#/Python synthesis loops.
+>   - **QLoRA & MoA (Phase 6 Core)**: Mixture-of-Agents routing separating complexity, dynamic LoRA hot-swapping/exporting, and automated `trl.DPOTrainer` fine-tuning pipeline.
+> - **Extended Target Specifications (Phase 6 Remainder)**:
+>   - Production Reasoning Episode Harvesting ($\ge 500$ verified episodes) and live LoRA promotion calibration.
+>   - Automated Dataset Builder enforcing Novelty/Entropy filters for DPO pair generation.
+> - **Next Horizon: Autonomous Worker (OpenWorker Parity)**:
+>   - Headless Browser & Computer Automation (`Playwright` / MCP).
+>   - Asynchronous Job Queue & Multi-Day Persistence daemon.
+>   - FastAPI / Starlette Webhook & Integration Hub.
+>
+> ### The Evolution Roadmap
+> ```
+> [ Solaris Zarya v0.1.0 ]  (CLI + Sandbox + SQLite-vec + DPO)
+>           │
+>           ▼
+> [ Phase 5 & 6 ]          (Unity/Blender Toolchain + LoRA Hot-Swapping)
+>           │
+>           ▼
+> [ Autonomous Worker ]    (Playwright Web Agent + FastAPI Webhooks + Web Workspace)
+> ```
 
 ---
 
@@ -2005,6 +2021,51 @@ For deep technical and mathematical learning, the engine prioritizes **academic 
    - *Risk*: Local 7B/8B models (e.g., Llama 3.2, Qwen 2.5) tend to lose prompt adherence or hallucinate tool schemas during extended multi-turn tool chains.
    - *Architecture Invariant*: Tool definitions, Pydantic schemas, and system prompts must be kept compact, modular, and concise with deterministic fallback overrides (e.g., `_enforce_file_tiers`).
 
+---
+
+## 9.3 Next Horizon: 3 Key Additions to Reach "OpenWorker" Parity
+
+To evolve the system from an interactive terminal agent into an untethered, enterprise-grade autonomous worker, three architectural subsystems bridge the gap to full "OpenWorker" parity:
+
+```
+                  ┌───────────────────────────────────────────────┐
+                  │ Autonomous Worker: "OpenWorker" Architecture  │
+                  └───────────────────────┬───────────────────────┘
+                                          │
+        ┌─────────────────────────────────┼─────────────────────────────────┐
+        ▼                                 ▼                                 ▼
+┌───────────────────────────┐ ┌───────────────────────────┐ ┌───────────────────────────┐
+│ 1. Headless Browser / MCP │ │ 2. Asynchronous Job Queue │ │ 3. Webhook & Integration  │
+│ - Playwright Web Agent    │ │ - Multi-Day Persistence   │ │ - FastAPI / Starlette Hub │
+│ - DOM / Form Automation   │ │ - Reboot-Proof Task FSM   │ │ - GitHub/Discord Triggers │
+│ - Authenticated Dashboards│ │ - Unattended Execution    │ │ - Scheduled Daily Jobs    │
+└───────────────────────────┘ └───────────────────────────┘ └───────────────────────────┘
+```
+
+### 1. Headless Browser & Computer Automation (Playwright / MCP)
+OpenWorker agents spend much of their runtime interacting with web applications, scraping authenticated dashboards, filling forms, and reading documentation.
+- **Architectural Role**: Move beyond simple static HTTP `GET` requests to full headless browser orchestration via Playwright or standardized Model Context Protocol (MCP) browser servers (`agent/integrations/browser_mcp.py`).
+- **Core Invariants**:
+  - DOM snapshot parsing with semantic role compression (converting raw HTML trees into high-signal markdown representations).
+  - Isolated cookie and session state storage under `data/browser_sessions/`.
+  - Multimodal visual grounding for UI reasoning and screenshot-based debugging.
+
+### 2. Asynchronous Job Queue & Multi-Day Persistence
+OpenWorker operates in the background: a user submits a complex prompt ("Research competitors, draft a report, and open a PR with the benchmark code") and closes their laptop.
+- **Architectural Role**: Wrap the deterministic Task FSM (`agent/engine/state_machine.py`) in an asynchronous background worker daemon (`agent/engine/worker.py`) that persists job state across machine reboots and network drops.
+- **Core Invariants**:
+  - Durable SQLite WAL job queue storing serialized DAG execution checkpoints.
+  - Automatic crash hydration upon boot: the daemon inspects `data/active_task.json` and resumes the exact pending sub-goal without repeating idempotent completed steps.
+  - Step-level progress notifications dispatched to external webhooks or local desktop alerts.
+
+### 3. Webhook & Integration Hub
+Enable the engine to listen for external triggers (e.g., a new GitHub Issue, a Discord slash command, or a scheduled daily trigger) rather than requiring an active terminal session.
+- **Architectural Role**: Expose a secure, lightweight ASGI webhook gateway (`agent/integrations/hub.py`) powered by FastAPI/Starlette to bridge external events into the agent's Task Planner and Heartbeat daemon.
+- **Core Invariants**:
+  - HMAC signature verification on inbound webhooks (GitHub, Slack, Discord).
+  - Event-to-Goal translation: maps incoming event payloads directly to high-level Goal DAG templates.
+  - Zero-terminal execution: tasks run in the background worker daemon while status updates are posted back to the originating channel.
+
 
 ## 10. Directory & File Structure
 
@@ -2090,7 +2151,15 @@ e:\AI double/
 │       ├── state_machine.py  # Deterministic Task FSM & trace telemetry with strategy_label (Mitigation #49, M67)
 │       ├── benchmark.py      # Objective benchmark test runner & ZPD binary search difficulty evaluator (M45, M66)
 │       ├── dataset_builder.py # Novelty (>0.7) & entropy (>2σ) filter, DPO/SFT dataset generator for model fine-tuning (M68, M69)
+│       ├── trainer.py        # Automated DPO/QLoRA fine-tuning & benchmark promotion coordinator (M69)
+│       ├── worker.py         # Asynchronous persistent job worker daemon (multi-day durable queue)
 │       └── orchestrator.py   # Master coordinator (learn, correct, forget, refresh, reflect, task)
+│   └── integrations/
+│       ├── __init__.py
+│       ├── unity_mcp.py      # Unity Editor MCP bridge daemon client & UTF test runner (Phase 5)
+│       ├── blender_mcp.py    # Headless Blender 3D procedural synthesis & export bridge (Phase 5)
+│       ├── browser_mcp.py    # Headless Playwright / MCP browser automation engine
+│       └── hub.py            # FastAPI/Starlette event-driven webhook integration gateway
 ├── skills/                   # Verified executable Python tools (topic-prefixed .py files)
 │   └── __init__.py
 └── tests/

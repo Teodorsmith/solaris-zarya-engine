@@ -56,6 +56,7 @@ class OpenAILikeBrain(BaseBrain):
         rpm_limit: int = 0,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        lora_adapter: str | None = None,
     ):
         raw_base = (
             base_url
@@ -106,6 +107,9 @@ class OpenAILikeBrain(BaseBrain):
             )
         else:
             self.model = configured_model
+
+        if lora_adapter:
+            self.model = lora_adapter
 
     @staticmethod
     def _normalize_base_url(url: str) -> str:

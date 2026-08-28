@@ -54,6 +54,64 @@ class VCSManager:
         except FileNotFoundError:
             raise VCSManagerError("Git is not installed or not in PATH.")
 
+    def create_staging_worktree(self, task_name: str) -> Path:
+        """Create an isolated git worktree for headless Unity/Blender tests."""
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", task_name).strip("-").lower()
+        branch_name = f"ai-feat/{slug}"
+        worktree_path = Path("data/sandboxes/worktrees") / branch_name
+        
+        # Ensure the branch exists or create it pointing to HEAD
+        try:
+            # Check if branch exists
+            result = subprocess.run(
+                ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+                cwd=self.repo_path,
+            )
+            if result.returncode != 0:
+                # Branch does not exist, create it
+                subprocess.run(
+                    ["git", "branch", branch_name],
+                    cwd=self.repo_path,
+                    check=True,
+                )
+            
+            if worktree_path.exists():
+                # Cleanup old worktree if it exists
+                self.cleanup_worktree(worktree_path, branch_name, delete_branch=False)
+            
+            worktree_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            subprocess.run(
+                ["git", "worktree", "add", str(worktree_path.resolve()), branch_name],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return worktree_path.resolve()
+        except subprocess.CalledProcessError as e:
+            raise VCSManagerError(f"Failed to create staging worktree: {e}")
+
+    def cleanup_worktree(self, worktree_path: Path, branch_name: str, delete_branch: bool = True) -> None:
+        """Remove a staging git worktree and optionally the underlying branch."""
+        try:
+            # Remove worktree
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree_path.resolve())],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+            )
+            if delete_branch:
+                subprocess.run(
+                    ["git", "branch", "-D", branch_name],
+                    cwd=self.repo_path,
+                    capture_output=True,
+                    text=True,
+                )
+        except Exception as e:
+            raise VCSManagerError(f"Failed to cleanup worktree: {e}")
+
     def commit_with_smoke_test(
         self, message: str, unity_client: UnityMCPClient | None = None
     ) -> dict[str, Any]:

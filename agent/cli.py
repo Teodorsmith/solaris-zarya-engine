@@ -51,21 +51,28 @@ console = Console()
 
 HELP = """
 Commands:
-  ask <question>      Ask something. Answered honestly from seeded facts & project files.
-  learn                Phase 0 stub — seeds facts.json.
-  skill <topic>        Synthesize and validate a new local Python skill.
-  facts                List everything currently in semantic memory.
-  project index <dir>  Index workspace directory into Project Memory.
-  project list         List indexed project files.
-  stats                Show memory counts.
-  self-model           Show empirical competence matrix and boot count.
-  benchmark reasoning  Run ZPD reasoning calibration.
-  dataset stats|build  Manage DPO reasoning datasets (Mitigations #68, #69).
-  brain switch <provider> [model]  Switch active brain (gemini, groq, openai, local, mock, moa_router).
-  brain list           Show registered providers and current brain.
-  /clear               Clear conversational chat context.
-  help                 Show this message.
-  exit                 Quit.
+  ask <question>                   Ask something. Answered honestly from memory & indexed codebase.
+  learn <topic> | learn resume     Autonomous research: decomposes topic into curriculum & learns facts.
+  skill <topic>                    Synthesize and sandboxed-validate a new local Python tool/skill.
+  task plan <goal>                 Decompose a complex objective into a goal DAG with FSM execution.
+  task run                         Execute the active planned task DAG.
+  facts                            List atomic facts currently stored in semantic memory.
+  project index <dir>              Index workspace codebase into Project Memory (Tier 4).
+  project list                     List indexed project files and roles.
+  unity-synth <topic>              Synthesize and test a C# script inside an isolated Unity worktree.
+  blender-synth <topic>            Synthesize and test a Python script inside Blender.
+  ingest-paper <path|arxiv_id>     Ingest and distill an academic paper into semantic memory.
+  stats                            Show memory counts across all 4 tiers.
+  self-model                       Show empirical competence matrix, boot count, and ZPD profile.
+  benchmark reasoning              Run ZPD reasoning calibration suite.
+  dataset stats|build              Manage DPO reasoning datasets (Mitigations #68, #69).
+  train dpo [target]               Run QLoRA DPO model fine-tuning.
+  train promote <adapter_name>     Promote evaluated checkpoint for MoA routing.
+  brain switch <provider> [model]  Switch active brain (gemini, groq, openai, openrouter, local, mock, moa_router).
+  brain list                       Show registered providers and active brain.
+  /clear                           Clear conversational chat context.
+  help                             Show this message.
+  exit                             Quit.
 
 Any unrecognised text is routed directly to the Conversational Chat Engine.
 """
@@ -208,7 +215,8 @@ def dispatch_command(
     KNOWN_COMMANDS = {
         "help", "ask", "learn", "skill", "skills", "run-skill", "facts",
         "read", "project", "stats", "task", "self-model", "benchmark",
-        "dataset", "brain", "chat", "/clear", "ingest-paper", "train", "correct"
+        "dataset", "brain", "chat", "/clear", "ingest-paper", "train", "correct",
+        "unity-synth", "blender-synth"
     }
 
     if command == "help":
@@ -228,6 +236,14 @@ def dispatch_command(
         handle_run_skill(rest, procedural, validator)
     elif command == "facts":
         handle_facts(rest, semantic)
+    elif command == "unity-synth":
+        from agent.commands.domain_synth import handle_unity_synth
+        from agent.engine.vcs_manager import VCSManager
+        handle_unity_synth(rest, synthesizer, VCSManager(), fsm, governor, episodic)
+    elif command == "blender-synth":
+        from agent.commands.domain_synth import handle_blender_synth
+        from agent.engine.vcs_manager import VCSManager
+        handle_blender_synth(rest, synthesizer, VCSManager(), fsm, governor, episodic)
     elif command == "correct":
         from agent.commands.facts import handle_correct
         handle_correct(rest, semantic, episodic)
@@ -269,13 +285,25 @@ def dispatch_command(
         import agent.cli as cli_mod
         import difflib
         
-        # Check for typos of known commands
-        matches = difflib.get_close_matches(command, KNOWN_COMMANDS, n=1, cutoff=0.7)
+        _CONVERSATION_STARTERS = {
+            "what", "how", "who", "where", "when", "why", "which",
+            "can", "could", "would", "should", "will", "tell", "explain",
+            "is", "are", "do", "does", "did", "show", "describe",
+            "write", "create", "summarize", "summarise", "please", "hello", "hi", "hey"
+        }
+        
+        raw_input = f"{command} {rest}".strip()
+        
+        # Check for typos of known commands (only if not an obvious conversational prompt)
+        matches = (
+            difflib.get_close_matches(command, KNOWN_COMMANDS, n=1, cutoff=0.82)
+            if command.lower() not in _CONVERSATION_STARTERS
+            else []
+        )
         if matches:
             console.print(f"[yellow]Unknown command '{command}'. Did you mean '{matches[0]}'? (Use 'chat {command}' if this was meant as conversation)[/yellow]")
         elif getattr(cli_mod, "CHAT_FALLBACK_ENABLED", True):
             # Fallback routing to conversational chat
-            raw_input = f"{command} {rest}".strip()
             chat_engine.respond(raw_input)
         else:
             console.print(f"[yellow]unknown command: {command}[/yellow] (try `help`)")

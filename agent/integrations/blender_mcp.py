@@ -48,7 +48,7 @@ class BlenderMCPClient:
                 "or install Blender and add it to PATH."
             )
 
-    def validate_ast(self, code: str) -> None:
+    def validate_ast(self, code: str, export_dir: Path | None = None) -> None:
         """Validate Blender Python script against strict security rules."""
         try:
             tree = ast.parse(code)
@@ -98,14 +98,42 @@ class BlenderMCPClient:
                     raise BlenderSecurityError("Banned attribute: sys.modules")
 
     def run_script(
-        self, script_code: str, timeout: float = 60.0
+        self, script_path: Path, export_dir: Path | None = None, timeout: float = 60.0
     ) -> dict[str, Any]:
         """Execute a Blender python script headlessly."""
-        self.validate_ast(script_code)
+        
+        script_code = script_path.read_text(encoding="utf-8")
+        self.validate_ast(script_code, export_dir=export_dir)
+
+        # Inject dynamic sandbox preamble if export_dir is provided
+        preamble = ""
+        if export_dir:
+            preamble = f"""
+import builtins
+import bpy
+from pathlib import Path
+_orig_open = builtins.open
+def _safe_open(file, mode='r', *args, **kwargs):
+    if 'w' in mode or 'a' in mode or '+' in mode:
+        if not Path(file).resolve().is_relative_to(Path(r"{export_dir}").resolve()):
+            raise PermissionError(f"Sandbox violation: Cannot write to {{file}} outside of {export_dir}")
+    return _orig_open(file, mode, *args, **kwargs)
+builtins.open = _safe_open
+
+# Wrap common export ops
+_orig_fbx = bpy.ops.export_scene.fbx if hasattr(bpy.ops, 'export_scene') and hasattr(bpy.ops.export_scene, 'fbx') else None
+if _orig_fbx:
+    def _safe_fbx(*args, **kwargs):
+        if 'filepath' in kwargs:
+            if not Path(kwargs['filepath']).resolve().is_relative_to(Path(r"{export_dir}").resolve()):
+                raise PermissionError(f"Sandbox violation: Cannot write FBX to {{kwargs['filepath']}}")
+        return _orig_fbx(*args, **kwargs)
+    bpy.ops.export_scene.fbx = _safe_fbx
+"""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_file = Path(temp_dir) / "script.py"
-            temp_file.write_text(script_code, encoding="utf-8")
+            temp_file.write_text(preamble + "\n" + script_code, encoding="utf-8")
 
             cmd = [
                 str(self.blender_path),

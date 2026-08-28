@@ -29,6 +29,9 @@ data/.state_manifest.json
 data/sandbox_manifest.json
 data/checkpoints/
 data/knowledge/
+data/notes/
+data/exports/
+data/sandboxes/
 data/self_model*.json
 data/state_manifest.json
 data/last_synthesis_debug.log

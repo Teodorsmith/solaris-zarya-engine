@@ -52,6 +52,32 @@ _FILE_ACTION_HINTS: tuple[str, ...] = (
     ".csv",
 )
 
+# Keywords that unambiguously signal a domain action (Unity / Blender MCP/CLI).
+# These require isolated staging worktrees and Tier 2 approval before merge.
+_DOMAIN_ACTION_HINTS: tuple[str, ...] = (
+    "unity-synth",
+    "blender-synth",
+    "synthesize unity",
+    "synthesize blender",
+    "synthesize c#",
+    "unity_mcp",
+    "blender_mcp",
+    "unity_cli",
+    "export fbx",
+    "export gltf",
+    "export blend",
+    "eval c#",
+    "run unity test",
+    "import asset",
+    "import fbx",
+    "modify scene",
+    "create scene",
+    ".cs",
+    ".fbx",
+    ".gltf",
+    ".blend",
+)
+
 
 class TaskPlanner:
     def __init__(
@@ -236,6 +262,15 @@ Use internal string IDs (like "goal_1") to set up dependencies.
                 if goal.required_tier < 2:
                     logger.info(
                         "Tier override: '%s' upgraded from Tier %d to Tier 2 (file-action keyword match).",
+                        goal.description,
+                        goal.required_tier,
+                    )
+                    goal.required_tier = 2
+            
+            elif any(hint in desc_lower for hint in _DOMAIN_ACTION_HINTS):
+                if goal.required_tier < 2:
+                    logger.info(
+                        "Tier override: '%s' upgraded from Tier %d to Tier 2 (domain-action keyword match).",
                         goal.description,
                         goal.required_tier,
                     )

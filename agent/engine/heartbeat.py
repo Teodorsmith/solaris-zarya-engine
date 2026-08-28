@@ -322,16 +322,16 @@ class HeartbeatDaemon(threading.Thread):
         if not row:
             return
 
-        # We need a brain. But HeartbeatDaemon doesn't have self._brain.
-        # It's Tier 0. Wait, M#64 says: "Have the idle Heartbeat cycle ask 'What change would make this solution fail?'"
-        # Since Heartbeat is STRICTLY Tier 0 and doesn't do LLM calls, this is a contradiction.
-        # But Phase 4B updated M#64 to be executed here. We must fetch the global brain_manager's brain.
-        from agent.brains.factory import brain_manager
-
-        if not brain_manager or not brain_manager.brain:
+        # Phase 4B updated M#64: retrieve active brain safely
+        try:
+            from agent.brains.factory import get_brain
+            brain = get_brain()
+        except Exception as exc:
+            logger.debug("HeartbeatDaemon: brain acquisition failed for reflection: %s", exc)
             return
 
-        brain = brain_manager.brain
+        if not brain:
+            return
         prompt = (
             f"Review this verified solution:\nState: {row['state']}\nAction: {row['action']}\n"
             f"What input change or edge case would make this solution fail? Output ONLY the Python input value."

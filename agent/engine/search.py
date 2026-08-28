@@ -10,15 +10,18 @@
 # contact: teosmith.studios@gmail.com
 
 import logging
+import warnings
 from urllib.parse import urlparse
 
-try:
-    from duckduckgo_search import DDGS
-except ImportError:
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", RuntimeWarning)
     try:
         from ddgs import DDGS
     except ImportError:
-        DDGS = None
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            DDGS = None
 
 logger = logging.getLogger(__name__)
 

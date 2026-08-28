@@ -114,5 +114,78 @@ def handle_train_cmd(rest: str, trainer: ModelTrainer) -> None:
             console.print(f"[bold red]Training failed:[/bold red] {e}")
             logger.exception("Training failed")
             
+    elif subcmd == "promote":
+        if len(parts) < 2:
+            console.print("[red]Usage: train promote <lora_vX>[/red]")
+            return
+        version = parts[1]
+        meta_file = DATA_DIR / "checkpoints" / version / "adapter_meta.json"
+        if not meta_file.exists():
+            console.print(f"[red]Checkpoint {version} not found.[/red]")
+            return
+        
+        try:
+            with open(meta_file, "r") as f:
+                meta = json.load(f)
+            meta["status"] = "promoted"
+            with open(meta_file, "w") as f:
+                json.dump(meta, f, indent=2)
+            console.print(f"[green]Successfully promoted {version}. MoA router will now use this adapter.[/green]")
+        except Exception as e:
+            console.print(f"[red]Failed to promote: {e}[/red]")
+            
+    elif subcmd == "evaluate":
+        if len(parts) < 2:
+            console.print("[red]Usage: train evaluate <lora_vX>[/red]")
+            return
+        version = parts[1]
+        console.print(f"[cyan]Evaluating {version}...[/cyan]")
+        console.print("[yellow]Evaluation benchmark suite is currently a manual stub. Please verify the model qualitatively against the immutable suite before promotion.[/yellow]")
+        
+    elif subcmd == "export-ollama":
+        if len(parts) < 2:
+            console.print("[red]Usage: train export-ollama <lora_vX>[/red]")
+            return
+        version = parts[1]
+        checkpoint_dir = DATA_DIR / "checkpoints" / version
+        if not checkpoint_dir.exists():
+            console.print(f"[red]Checkpoint {version} not found.[/red]")
+            return
+            
+        console.print(f"[cyan]Merging {version} into base model for Ollama export (this may take a few minutes)...[/cyan]")
+        try:
+            meta_file = checkpoint_dir / "adapter_meta.json"
+            base_model_id = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
+            if meta_file.exists():
+                with open(meta_file, "r") as f:
+                    meta = json.load(f)
+                    base_model_id = meta.get("base_model", base_model_id)
+                    
+            from transformers import AutoModelForCausalLM
+            from peft import PeftModel
+            import torch
+            
+            console.print(f"Loading base model: {base_model_id}")
+            base_model = AutoModelForCausalLM.from_pretrained(
+                base_model_id, torch_dtype=torch.float16, device_map="cpu"
+            )
+            console.print("Loading PEFT adapter and merging...")
+            model = PeftModel.from_pretrained(base_model, str(checkpoint_dir))
+            merged_model = model.merge_and_unload()
+            
+            out_dir = checkpoint_dir / "merged"
+            out_dir.mkdir(exist_ok=True)
+            merged_model.save_pretrained(str(out_dir))
+            
+            modelfile_path = checkpoint_dir / "Modelfile"
+            with open(modelfile_path, "w") as f:
+                f.write(f"FROM ./merged\n")
+                
+            console.print("[green]Merge complete![/green]")
+            console.print(f"To create the Ollama model, run:\n[bold cyan]ollama create {base_model_id.split('/')[-1].lower()}-dpo -f {modelfile_path}[/bold cyan]")
+        except Exception as e:
+            console.print(f"[bold red]Export failed:[/bold red] {e}")
+            logger.exception("Ollama export failed")
+            
     else:
         console.print(f"[red]Unknown train sub-command: {subcmd}[/red]")

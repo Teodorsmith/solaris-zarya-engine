@@ -58,7 +58,7 @@ class ASTSecurityScanner(ast.NodeVisitor):
     def __init__(self, skill_name: str | None = None):
         self.errors = []
         self.skill_name = skill_name
-        # These are dangerous built-in functions / attributes that cannot be used.
+        # Built-in functions that cannot be called directly by name
         self.banned_names = {
             "eval",
             "exec",
@@ -71,6 +71,19 @@ class ASTSecurityScanner(ast.NodeVisitor):
             "delattr",
             "__import__",
             "open",
+        }
+        # Attribute methods that cannot be called even on objects
+        self.banned_func_attrs = {
+            "eval",
+            "exec",
+            "compile",
+            "globals",
+            "locals",
+            "vars",
+            "getattr",
+            "setattr",
+            "delattr",
+            "__import__",
         }
         self.banned_attrs = {
             "__subclasses__",
@@ -104,7 +117,7 @@ class ASTSecurityScanner(ast.NodeVisitor):
             if node.func.id in self.banned_names:
                 self.errors.append(f"Function '{node.func.id}' is forbidden.")
         elif isinstance(node.func, ast.Attribute):
-            if node.func.attr in self.banned_names:
+            if node.func.attr in self.banned_func_attrs:
                 self.errors.append(f"Attribute '{node.func.attr}' is forbidden.")
         self.generic_visit(node)
 

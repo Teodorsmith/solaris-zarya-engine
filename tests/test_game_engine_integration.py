@@ -2,6 +2,8 @@ import pytest
 from unittest.mock import Mock, patch
 from pathlib import Path
 
+from agent.engine.synthesizer import SkillSynthesizer, SecurityError
+
 from agent.integrations.blender_mcp import (
     BlenderMCPClient,
     BlenderSecurityError,
@@ -63,6 +65,32 @@ def test_blender_ast_banned_attribute(mock_blender_client):
         mock_blender_client.validate_ast(code)
 
 
+# --- C# Synthesis Security Tests ---
+def test_csharp_security_valid():
+    code = """
+    using UnityEngine;
+    public class ValidScript : MonoBehaviour {
+        void Start() { Debug.Log("Hello"); }
+    }
+    """
+    SkillSynthesizer._validate_csharp_security(code)
+
+def test_csharp_security_banned_namespace():
+    code = "using System.Diagnostics;"
+    with pytest.raises(SecurityError, match="Banned namespace"):
+        SkillSynthesizer._validate_csharp_security(code)
+
+def test_csharp_security_banned_attribute():
+    code = "[InitializeOnLoad] public class BadScript {}"
+    with pytest.raises(SecurityError, match="Banned attribute"):
+        SkillSynthesizer._validate_csharp_security(code)
+
+def test_csharp_security_dllimport():
+    code = '[DllImport("user32.dll")]'
+    with pytest.raises(SecurityError, match="DllImport"):
+        SkillSynthesizer._validate_csharp_security(code)
+
+
 # --- Unity MCP Tests ---
 def test_parse_roslyn_errors(mock_unity_client):
     log = """
@@ -105,6 +133,20 @@ def test_parse_nunit_xml(mock_unity_client, tmp_path):
     assert len(res["failures"]) == 1
     assert res["failures"][0]["name"] == "TestTwo"
     assert "Expected: true" in res["failures"][0]["message"]
+
+def test_verify_project_version_mismatch(tmp_path):
+    # Mock project path
+    proj_path = tmp_path / "mock_project"
+    settings_dir = proj_path / "ProjectSettings"
+    settings_dir.mkdir(parents=True)
+    pv_txt = settings_dir / "ProjectVersion.txt"
+    pv_txt.write_text("m_EditorVersion: 2021.3.15f1", encoding="utf-8")
+    
+    with pytest.raises(RuntimeError, match="Unity version mismatch!"):
+        UnityMCPClient(
+            unity_path=Path("C:/Program Files/Unity/Hub/Editor/2022.3.15f1/Editor/Unity.exe"),
+            project_path=proj_path
+        )
 
 
 # --- VCS Manager Tests ---
@@ -170,3 +212,124 @@ def test_vcs_commit_success(mock_run, tmp_path, mock_unity_client):
 
         assert result["status"] == "success"
         assert result["commit_output"] == "[ai-feat/test-branch] test"
+
+
+# --- UnityCLIClient Tests ---
+import json
+
+
+@patch("shutil.which", return_value="/usr/bin/unity")
+@patch("subprocess.run")
+def test_unity_cli_run_tests_success(mock_run, mock_which):
+    """CLI returns structured JSON with all tests passing."""
+    from agent.integrations.unity_cli import UnityCLIClient
+
+    mock_run.return_value = Mock(
+        returncode=0,
+        stdout=json.dumps({
+            "passed": 5,
+            "failed": 0,
+            "failures": [],
+            "compiler_errors": [],
+        }),
+        stderr="",
+    )
+
+    client = UnityCLIClient(project_path="mock_project")
+    result = client.run_tests(test_platform="EditMode")
+
+    assert result["status"] == "success"
+    assert result["test_results"]["passed"] == 5
+    assert result["test_results"]["failed"] == 0
+    assert result["compiler_errors"] == []
+
+
+@patch("shutil.which", return_value="/usr/bin/unity")
+@patch("subprocess.run")
+def test_unity_cli_run_tests_failure(mock_run, mock_which):
+    """CLI returns structured JSON with test failures."""
+    from agent.integrations.unity_cli import UnityCLIClient
+
+    mock_run.return_value = Mock(
+        returncode=2,
+        stdout=json.dumps({
+            "passed": 3,
+            "failed": 2,
+            "failures": [
+                {"name": "TestHealth", "message": "Expected 100 but got 0"},
+            ],
+            "compiler_errors": [],
+        }),
+        stderr="",
+    )
+
+    client = UnityCLIClient(project_path="mock_project")
+    result = client.run_tests()
+
+    assert result["status"] == "failed"
+    assert result["test_results"]["failed"] == 2
+    assert len(result["test_results"]["failures"]) == 1
+
+
+@patch("shutil.which", return_value="/usr/bin/unity")
+@patch("subprocess.run")
+def test_unity_cli_eval_csharp(mock_run, mock_which):
+    """CLI eval executes C# and returns result."""
+    from agent.integrations.unity_cli import UnityCLIClient
+
+    mock_run.return_value = Mock(
+        returncode=0,
+        stdout=json.dumps({"result": "42"}),
+        stderr="",
+    )
+
+    client = UnityCLIClient(project_path="mock_project")
+    result = client.eval_csharp("Debug.Log(40+2);")
+
+    assert result["status"] == "success"
+    assert result["result"] == "42"
+
+
+@patch("shutil.which", return_value="/usr/bin/unity")
+@patch("subprocess.run")
+def test_unity_cli_get_status(mock_run, mock_which):
+    """CLI status returns editor connection info."""
+    from agent.integrations.unity_cli import UnityCLIClient
+
+    mock_run.return_value = Mock(
+        returncode=0,
+        stdout=json.dumps({"pid": 12345, "project": "/path/to/project"}),
+        stderr="",
+    )
+
+    client = UnityCLIClient(project_path="mock_project")
+    result = client.get_status()
+
+    assert result["pid"] == 12345
+    assert result["exit_code"] == 0
+
+
+@patch("shutil.which", return_value=None)
+def test_unity_cli_not_installed(mock_which):
+    """Client raises UnityCLINotFoundError when binary is missing."""
+    from agent.integrations.unity_cli import UnityCLIClient, UnityCLINotFoundError
+
+    with pytest.raises(UnityCLINotFoundError, match="not installed"):
+        UnityCLIClient()
+
+
+@patch("shutil.which", return_value="/usr/bin/unity")
+@patch("subprocess.run")
+def test_unity_cli_timeout(mock_run, mock_which):
+    """CLI returns error dict when subprocess times out."""
+    from agent.integrations.unity_cli import UnityCLIClient
+    import subprocess as sp
+
+    mock_run.side_effect = sp.TimeoutExpired(cmd="unity", timeout=120)
+
+    client = UnityCLIClient(project_path="mock_project")
+    result = client.run_tests(timeout=120)
+
+    assert result["status"] == "error"
+    assert "timed out" in result.get("error", "")
+

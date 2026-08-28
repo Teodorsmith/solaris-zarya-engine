@@ -91,6 +91,8 @@ class Skill(BaseModel):
     description: str
     file_path: str | None = None
     verification_tier: Literal["mock", "real_local", "real_external"] = "mock"
+    runtime: Literal["python", "unity_cs", "blender_py"] = "python"
+    language: Literal["python", "csharp"] = "python"
     success_count: int = 0
     fail_count: int = 0
     created_at: str = Field(default_factory=_now)
